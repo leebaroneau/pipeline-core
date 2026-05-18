@@ -1,0 +1,6 @@
+name: pipeline unpinned caller
+on: { pull_request: { types: [opened] } }
+jobs:
+  caller:
+    permissions: { contents: read }
+    uses: example-org/pipeline-core/.github/workflows/triage-gate.yml@main

@@ -1,0 +1,23 @@
+name: Pipeline — path-based PR labels
+
+on:
+  workflow_call:
+    inputs:
+      labeler-config:
+        type: string
+        required: false
+        default: .github/labeler.yml
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply labels from labeler config
+        uses: actions/labeler@v5
+        with:
+          configuration-path: ${{ inputs.labeler-config }}
+          sync-labels: false

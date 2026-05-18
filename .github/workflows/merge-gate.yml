@@ -1,0 +1,163 @@
+name: Pipeline — merge gate
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  statuses: write
+  pull-requests: write
+  issues: read
+  checks: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Load reviewer policy from pipeline-config.yml
+        id: policy
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const yaml = require('js-yaml');
+            const fs = require('fs');
+            const cfg = yaml.load(fs.readFileSync(process.env.CONFIG_PATH, 'utf8'));
+            const defaultReviewers = cfg.reviewer_policy?.default_required_reviewers ?? 1;
+            core.setOutput('default_required_reviewers', defaultReviewers);
+            core.setOutput('by_component', JSON.stringify(cfg.reviewer_policy?.by_component || {}));
+
+      - name: Evaluate merge gate
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          DEFAULT_REQUIRED: ${{ steps.policy.outputs.default_required_reviewers }}
+          BY_COMPONENT: ${{ steps.policy.outputs.by_component }}
+        with:
+          script: |
+            const { checkMergeGate } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-merge-gate.mjs`);
+            const { checkIssueLink } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-issue-link.mjs`);
+            const { postOrUpdateSticky, deleteSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const MARKER = "<!-- pipeline:merge-gate-failure -->";
+
+            let prs = [];
+            if (context.eventName === "pull_request" || context.eventName === "pull_request_review") {
+              prs = [context.payload.pull_request];
+            } else {
+              const issue = context.payload.issue;
+              const { data: search } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${owner}/${repo} is:pr is:open ${issue.number}`,
+              });
+              for (const p of search.items) {
+                const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: p.number });
+                if (checkIssueLink(full.body || "").refs.includes(issue.number)) {
+                  prs.push(full);
+                }
+              }
+            }
+
+            for (const pr of prs) {
+              const linkResult = checkIssueLink(pr.body || "");
+              let linkedIssue = null;
+              if (linkResult.refs.length > 0) {
+                try {
+                  const { data } = await github.rest.issues.get({ owner, repo, issue_number: linkResult.refs[0] });
+                  linkedIssue = {
+                    number: data.number,
+                    labels: data.labels.map(l => l.name),
+                  };
+                } catch (e) {}
+              }
+
+              const { data: reviews } = await github.rest.pulls.listReviews({ owner, repo, pull_number: pr.number });
+              const latestByUser = new Map();
+              for (const r of reviews) {
+                latestByUser.set(r.user.login, r.state);
+              }
+              const approvedReviews = [...latestByUser.values()].filter(s => s === "APPROVED").length;
+
+              const defaultRequired = parseInt(process.env.DEFAULT_REQUIRED, 10);
+              const byComponent = JSON.parse(process.env.BY_COMPONENT);
+              const prLabels = (pr.labels || []).map(l => l.name);
+              const componentLabel = prLabels.find(l => l.startsWith("component:"));
+              const componentName = componentLabel ? componentLabel.slice("component:".length) : null;
+              const requiredReviews = componentName && byComponent[componentName] != null
+                ? byComponent[componentName]
+                : defaultRequired;
+
+              const { data: statuses } = await github.rest.repos.getCombinedStatusForRef({
+                owner, repo, ref: pr.head.sha,
+              });
+              const { data: checks } = await github.rest.checks.listForRef({
+                owner, repo, ref: pr.head.sha,
+              });
+              const ciStatuses = [
+                ...statuses.statuses.map(s => ({ context: s.context, state: s.state })),
+                ...checks.check_runs.map(c => ({
+                  context: c.name,
+                  state: c.conclusion === "success" ? "success"
+                    : c.status === "completed" ? "failure"
+                    : "pending",
+                })),
+              ];
+
+              const gate = checkMergeGate({
+                branchName: pr.head.ref,
+                prBody: pr.body || "",
+                linkedIssue,
+                approvedReviews,
+                requiredReviews,
+                ciStatuses,
+              });
+
+              await github.rest.repos.createCommitStatus({
+                owner, repo, sha: pr.head.sha,
+                state: gate.ok ? "success" : "failure",
+                context: "pipeline/merge-gate",
+                description: gate.ok ? "All conditions pass" : `${gate.failures.length} condition(s) failing`,
+              });
+
+              if (gate.ok) {
+                await deleteSticky({ github, owner, repo, issue_number: pr.number, marker: MARKER });
+              } else {
+                const body = [
+                  "❌ **Merge gate failing** — the following must be resolved before merging:",
+                  "",
+                  ...gate.failures.map(f => `- ${f}`),
+                  "",
+                  "Branch protection on `main` requires `pipeline/merge-gate` to be green.",
+                ].join("\n");
+                await postOrUpdateSticky({
+                  github, owner, repo, issue_number: pr.number, marker: MARKER, body,
+                });
+              }
+            }

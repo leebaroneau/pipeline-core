@@ -1,0 +1,108 @@
+name: Pipeline — results gate (soft)
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Evaluate results gate
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const { checkResultsGate } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-results-gate.mjs`);
+            const { checkIssueLink } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-issue-link.mjs`);
+            const { postOrUpdateSticky, deleteSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const MARKER = "<!-- pipeline:results-warning -->";
+
+            // Find the relevant (PR, linked issue) pair
+            let pr, linkedIssue;
+            if (context.eventName === "pull_request") {
+              pr = context.payload.pull_request;
+              const linkResult = checkIssueLink(pr.body || "");
+              if (!linkResult.ok) return;
+              const num = linkResult.refs[0];
+              try {
+                const { data } = await github.rest.issues.get({ owner, repo, issue_number: num });
+                linkedIssue = data;
+              } catch (e) { return; }
+            } else {
+              // issues.edited — find any open PR that closes this issue
+              const issue = context.payload.issue;
+              linkedIssue = issue;
+              const { data: prs } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${owner}/${repo} is:pr is:open ${issue.number}`,
+              });
+              const linkingPr = prs.items.find((p) =>
+                checkIssueLink(p.body || "").refs.includes(issue.number)
+              );
+              if (!linkingPr) return;
+              const { data: prFull } = await github.rest.pulls.get({ owner, repo, pull_number: linkingPr.number });
+              pr = prFull;
+            }
+
+            const labels = (linkedIssue.labels || []).map((l) => (typeof l === "string" ? l : l.name));
+            const gate = checkResultsGate({ body: linkedIssue.body, labels });
+
+            if (!gate.applicable) {
+              await deleteSticky({ github, owner, repo, issue_number: pr.number, marker: MARKER });
+              return;
+            }
+
+            if (gate.ok) {
+              // Results populated → remove warning + transition issue if currently experimenting
+              await deleteSticky({ github, owner, repo, issue_number: pr.number, marker: MARKER });
+              if (labels.includes("status:experimenting")) {
+                for (const l of labels.filter((x) => x.startsWith("status:"))) {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: linkedIssue.number, name: l }).catch(() => {});
+                }
+                await github.rest.issues.addLabels({ owner, repo, issue_number: linkedIssue.number, labels: ["status:review"] });
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: linkedIssue.number,
+                  body: `✅ Results populated. Moving to status:review.`,
+                });
+              }
+              return;
+            }
+
+            // Results missing → post warning on the PR (soft mode, no failing status check)
+            await postOrUpdateSticky({
+              github, owner, repo, issue_number: pr.number, marker: MARKER,
+              body: `⚠️ **Results gate (soft warning)**\n\n${gate.reasons[0]}\n\nThis is a soft gate — it does NOT block merge. The data gate will harden when GA4/Shopify metrics integration ships (separate spec).`,
+            });

@@ -1,0 +1,13 @@
+name: Pipeline — top-level permissions example
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: node scripts/pipeline/check-branch-name.mjs

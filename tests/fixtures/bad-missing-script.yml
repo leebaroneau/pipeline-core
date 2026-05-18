@@ -1,0 +1,8 @@
+name: pipeline missing script
+on: { pull_request: { types: [opened] } }
+jobs:
+  example:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - run: node scripts/pipeline/does-not-exist.mjs

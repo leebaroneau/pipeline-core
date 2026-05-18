@@ -1,0 +1,81 @@
+name: Pipeline — PR state transitions (forward)
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  transition:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Move linked issue forward
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const { checkIssueLink } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-issue-link.mjs`);
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            const linkResult = checkIssueLink(pr.body || "");
+            if (linkResult.refs.length === 0) return;
+
+            for (const issueNumber of linkResult.refs) {
+              let issue;
+              try {
+                const { data } = await github.rest.issues.get({ owner, repo, issue_number: issueNumber });
+                issue = data;
+              } catch (e) { continue; }
+
+              if (issue.state !== "open") continue;
+              const labels = issue.labels.map(l => l.name);
+
+              // Idempotency guard — only transition from In Progress
+              if (!labels.includes("status:in-progress")) continue;
+
+              const isExperiment = labels.includes("type:experiment");
+              const targetLabel = isExperiment ? "status:experimenting" : "status:review";
+              const targetName = isExperiment ? "In Experiment" : "In Review";
+
+              await github.rest.issues.removeLabel({
+                owner, repo, issue_number: issueNumber, name: "status:in-progress",
+              }).catch(() => {});
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: issueNumber, labels: [targetLabel],
+              });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issueNumber,
+                body: `✅ Linked PR #${pr.number} updated. Issue moved to **${targetName}**.${isExperiment ? " Populate `## Results` to advance to In Review." : ""}`,
+              });
+            }

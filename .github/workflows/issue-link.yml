@@ -1,0 +1,93 @@
+name: Pipeline — PR issue link check
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  statuses: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Evaluate + post status check
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const { checkIssueLink } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-issue-link.mjs`);
+            const { postOrUpdateSticky, deleteSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
+
+            const prBody = context.payload.pull_request.body || "";
+            const result = checkIssueLink(prBody);
+            const sha = context.payload.pull_request.head.sha;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+            const MARKER = "<!-- pipeline:issue-link-failure -->";
+
+            let openRefFound = false;
+            if (result.ok) {
+              for (const n of result.refs) {
+                try {
+                  const { data: linked } = await github.rest.issues.get({ owner, repo, issue_number: n });
+                  if (linked.state === "open" && !linked.pull_request) {
+                    openRefFound = true;
+                    break;
+                  }
+                } catch (e) {
+                  // 404 means issue doesn't exist; continue scanning
+                }
+              }
+            }
+
+            const passed = result.ok && openRefFound;
+            await github.rest.repos.createCommitStatus({
+              owner, repo, sha,
+              state: passed ? "success" : "failure",
+              context: "pipeline/issue-link",
+              description: passed
+                ? `Linked to ${result.refs.map(n => `#${n}`).join(", ")}`
+                : (result.ok ? "Linked issue is closed or missing" : "PR body has no issue reference"),
+            });
+
+            if (passed) {
+              await deleteSticky({ github, owner, repo, issue_number, marker: MARKER });
+            } else {
+              const why = result.ok
+                ? "Linked issue is closed or doesn't exist. Reference an open issue with `Closes #N` / `Fixes #N` / `Resolves #N` / `Refs #N`."
+                : result.reasons[0];
+              await postOrUpdateSticky({
+                github, owner, repo, issue_number, marker: MARKER,
+                body: `❌ **PR-Issue link check failed**\n\n${why}`,
+              });
+            }

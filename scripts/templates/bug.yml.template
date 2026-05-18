@@ -1,0 +1,49 @@
+name: Bug
+description: Something is broken
+title: "[Bug]: "
+labels: ["type:bug"]
+body:
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Domain(s)
+      multiple: true
+      options: __DOMAIN_OPTIONS__
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component(s)
+      multiple: true
+      options: __COMPONENT_OPTIONS__
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of Scope
+    validations:
+      required: true

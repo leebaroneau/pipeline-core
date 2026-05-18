@@ -1,0 +1,156 @@
+name: Pipeline — drift-scan
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  drift-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Regenerate artifacts into temp dir
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          mkdir -p /tmp/drift/ISSUE_TEMPLATE
+          node .pipeline-core/scripts/generate-labels.mjs ${{ inputs.config-path }} /tmp/drift/labels.yml
+          node .pipeline-core/scripts/generate-labeler.mjs ${{ inputs.config-path }} /tmp/drift/labeler.yml
+          node .pipeline-core/scripts/generate-templates.mjs ${{ inputs.config-path }} /tmp/drift/ISSUE_TEMPLATE/
+
+      - name: Run drift scan
+        id: scan
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("node:fs");
+            const { runFullDriftScan } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-drift.mjs`);
+            const result = await runFullDriftScan({
+              tmpDir: "/tmp/drift",
+              octokit: github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              fs,
+            });
+            core.setOutput("ok", result.ok ? "true" : "false");
+            core.setOutput("report", result.report);
+            return result.report;
+
+      - name: Post sticky comment on PR (drift detected)
+        if: github.event_name == 'pull_request' && steps.scan.outputs.ok == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { postOrUpdateSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
+            await postOrUpdateSticky({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              marker: "<!-- pipeline:drift-scan -->",
+              body: process.env.SCAN_REPORT,
+            });
+        env:
+          SCAN_REPORT: ${{ steps.scan.outputs.report }}
+
+      - name: Remove sticky on PR (no drift)
+        if: github.event_name == 'pull_request' && steps.scan.outputs.ok == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { deleteSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
+            await deleteSticky({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              marker: "<!-- pipeline:drift-scan -->",
+            });
+
+      - name: Open or update tracking issue (cron mode, drift detected)
+        if: github.event_name == 'schedule' && steps.scan.outputs.ok == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const TRACKER_MARKER = "<!-- pipeline:drift-tracker -->";
+            const report = process.env.SCAN_REPORT;
+            const now = new Date().toISOString();
+
+            const { data: issues } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:body "${TRACKER_MARKER}"`,
+            });
+
+            if (issues.items.length > 0) {
+              const existing = issues.items[0];
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `### Drift scan ${now}\n\n${report}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Drift detected: ${now.slice(0, 10)}`,
+                body: `${TRACKER_MARKER}\n\nWeekly cron drift scan found one or more drifts.\n\n### Initial scan\n\n${report}`,
+                labels: ["type:task", "domain:pipeline", "priority:p3", "status:backlog"],
+              });
+            }
+        env:
+          SCAN_REPORT: ${{ steps.scan.outputs.report }}
+
+      - name: Close tracking issue (cron mode, drift resolved)
+        if: github.event_name == 'schedule' && steps.scan.outputs.ok == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const TRACKER_MARKER = "<!-- pipeline:drift-tracker -->";
+            const { data: issues } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:body "${TRACKER_MARKER}"`,
+            });
+            for (const issue of issues.items) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: "Drift scan ran clean. Closing tracker.",
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: "closed",
+              });
+            }
+
+      - name: Fail PR job if drift detected
+        if: github.event_name == 'pull_request' && steps.scan.outputs.ok == 'false'
+        run: exit 1

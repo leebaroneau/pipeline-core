@@ -1,0 +1,214 @@
+name: Pipeline — slash command dispatcher
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.comment.user.login != 'github-actions[bot]' }}
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Parse + dispatch the command
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const { parseSlashCommand } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/parse-slash-command.mjs`);
+            const { planDispatch } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/dispatch-command.mjs`);
+            const { checkReadyGate } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-ready-gate.mjs`);
+
+            const body = context.payload.comment.body || '';
+            const parsed = parseSlashCommand(body);
+            if (!parsed) return;
+
+            const issue = context.payload.issue;
+            const labels = (issue.labels || []).map(l => l.name);
+
+            const statusLabel = labels.find(l => l.startsWith('status:'));
+            const STATE_LABEL_MAP = {
+              'status:backlog': 'Backlog',
+              'status:triage': 'Triage',
+              'status:needs-info': 'Needs Info',
+              'status:selected': 'Selected for Development',
+              'status:in-progress': 'In Progress',
+              'status:experimenting': 'In Experiment',
+              'status:review': 'In Review',
+              'status:blocked': 'Blocked',
+              'status:on-hold': 'On Hold',
+              'status:done': 'Done',
+            };
+            const currentState = STATE_LABEL_MAP[statusLabel] ||
+              (issue.state === 'closed' ? 'Done' : 'Backlog');
+
+            const typeLabel = labels.find(l => l.startsWith('type:'));
+            const issueType = typeLabel ? typeLabel.slice('type:'.length) : 'improvement';
+
+            const actor = context.payload.comment.user.login;
+            const actorKind = context.payload.comment.user.type === 'Bot' ? 'agent' : 'human';
+
+            const plan = planDispatch({
+              command: parsed,
+              issue: { state: currentState, type: issueType },
+              actor,
+              actorKind,
+            });
+
+            const issue_number = issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Permission check (spec §11.1)
+            if (plan.requirePermission) {
+              const { getActorPermission, hasMinimumPermission } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/permissions.mjs`);
+              const actorPerm = await getActorPermission({ github, owner, repo, username: actor });
+              const isAssignee = (issue.assignees || []).some((a) => a.login === actor);
+              const hasPerm = hasMinimumPermission(actorPerm, plan.requirePermission);
+              if (!isAssignee && !hasPerm) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issue.number,
+                  body: `❌ \`${parsed.name}\` requires ${plan.requirePermission} permission or assignee status. Caller \`${actor}\` has \`${actorPerm}\`.`,
+                });
+                return;
+              }
+            }
+
+            if (plan.action === 'reject') {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number,
+                body: `❌ ${plan.message}`,
+              });
+              return;
+            }
+
+            if (plan.runReadyGate) {
+              // Foundation reads Priority and Story Points from priority:* and points:* labels.
+              // When Projects v2 is wired (Spec 2), this can switch to GraphQL field reads.
+              const priorityLabel = labels.find(l => l.startsWith('priority:'));
+              const priority = priorityLabel ? priorityLabel.slice('priority:'.length) : null;
+              const pointsLabel = labels.find(l => l.startsWith('points:'));
+              const storyPoints = pointsLabel ? pointsLabel.slice('points:'.length) : null;
+
+              const gateResult = checkReadyGate({
+                body: issue.body,
+                labels,
+                projectStatus: currentState,
+                priority,
+                storyPoints,
+              }, { type: issueType });
+
+              if (!gateResult.ok) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: [
+                    '❌ `/ready` failed — the following must be resolved before moving to Selected for Development:',
+                    '',
+                    ...gateResult.reasons.map(r => `- ${r}`),
+                  ].join('\n'),
+                });
+                return;
+              }
+            }
+
+            const STATE_TO_LABEL = Object.fromEntries(
+              Object.entries(STATE_LABEL_MAP).map(([k, v]) => [v, k])
+            );
+            const newStatusLabel = STATE_TO_LABEL[plan.targetState];
+
+            if (newStatusLabel) {
+              for (const l of labels.filter(l => l.startsWith('status:'))) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: l }).catch(() => {});
+              }
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [newStatusLabel] });
+            }
+
+            if (plan.applyLabel) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [plan.applyLabel] });
+            }
+
+            // Assignee mutations
+            if (plan.assignActor) {
+              await github.rest.issues.addAssignees({
+                owner, repo, issue_number: issue.number, assignees: [actor],
+              });
+            }
+            if (plan.unassignActor) {
+              await github.rest.issues.removeAssignees({
+                owner, repo, issue_number: issue.number, assignees: [actor],
+              });
+            }
+
+            // Iteration increment (/iterate)
+            if (plan.incrementIteration) {
+              const current = labels.find((l) => l.startsWith("iteration:"));
+              const currentN = current ? parseInt(current.slice("iteration:".length), 10) : 1;
+              if (currentN >= 5) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issue.number,
+                  body: "❌ Maximum iterations reached (`iteration:5`). Close with `/refuted <why>` and open a fresh issue with a refined hypothesis.",
+                });
+                return;
+              }
+              const nextN = currentN + 1;
+              if (current) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: current }).catch(() => {});
+              }
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [`iteration:${nextN}`] });
+            }
+
+            if (plan.closeWithReason) {
+              await github.rest.issues.update({
+                owner, repo, issue_number,
+                state: 'closed',
+                state_reason: plan.closeWithReason,
+              });
+            }
+
+            if (plan.action === 'reopen') {
+              await github.rest.issues.update({
+                owner, repo, issue_number,
+                state: 'open',
+              });
+              if (plan.removeResolutionLabels) {
+                for (const l of ['refuted', 'duplicate', 'wontfix', 'cnr']) {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name: l }).catch(() => {});
+                }
+              }
+            }
+
+            if (plan.commentBody) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number,
+                body: `✅ ${plan.commentBody}`,
+              });
+            }

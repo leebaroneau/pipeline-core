@@ -1,0 +1,94 @@
+name: Pipeline — PR closed handler
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Drive linked issue state
+        uses: actions/github-script@v7
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const { checkIssueLink } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/check-issue-link.mjs`);
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            const merged = pr.merged === true;
+
+            const linkResult = checkIssueLink(pr.body || "");
+            if (linkResult.refs.length === 0) return;
+
+            let branchExists = true;
+            try {
+              await github.rest.repos.getBranch({ owner, repo, branch: pr.head.ref });
+            } catch (e) {
+              if (e.status === 404) branchExists = false;
+            }
+
+            for (const issueNumber of linkResult.refs) {
+              let issue;
+              try {
+                const { data } = await github.rest.issues.get({ owner, repo, issue_number: issueNumber });
+                issue = data;
+              } catch (e) { continue; }
+              if (issue.state !== "open") continue;
+
+              const labels = issue.labels.map(l => l.name);
+
+              for (const l of labels.filter(x => x.startsWith("status:"))) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: l }).catch(() => {});
+              }
+
+              let targetLabel, comment;
+              if (merged) {
+                targetLabel = "status:done";
+                const iteration = labels.find(l => l.startsWith("iteration:"));
+                comment = `🎉 PR #${pr.number} merged${iteration ? ` (${iteration})` : ""}. Issue moved to **Done**.`;
+                await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: [targetLabel] });
+                await github.rest.issues.update({ owner, repo, issue_number: issueNumber, state: "closed", state_reason: "completed" });
+                await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body: comment });
+              } else {
+                targetLabel = branchExists ? "status:in-progress" : "status:selected";
+                const fallback = branchExists ? "In Progress" : "Selected for Development";
+                await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: [targetLabel] });
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issueNumber,
+                  body: `PR #${pr.number} was closed without merging. Issue returned to **${fallback}**.`,
+                });
+              }
+            }

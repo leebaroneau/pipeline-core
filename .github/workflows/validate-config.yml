@@ -1,0 +1,58 @@
+name: Pipeline — validate config + check generated drift
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-check-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: <org>/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Run pipeline scripts unit tests
+        working-directory: .pipeline-core
+        run: node --test 'tests/**/*.test.mjs'
+
+      - name: Validate pipeline-config.yml schema
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: node .pipeline-core/scripts/validate-config.mjs ${{ inputs.config-path }}
+
+      - name: Check generated files are in sync
+        run: |
+          node .pipeline-core/scripts/generate-labels.mjs
+          node .pipeline-core/scripts/generate-labeler.mjs
+          node .pipeline-core/scripts/generate-templates.mjs
+          if ! git diff --quiet -- .github/labels.yml .github/labeler.yml .github/ISSUE_TEMPLATE/; then
+            echo "::error::Generated files are out of sync with .github/pipeline-config.yml"
+            echo "Run 'make pipeline-generate' locally and commit the result."
+            git diff --stat -- .github/labels.yml .github/labeler.yml .github/ISSUE_TEMPLATE/
+            git diff -- .github/labels.yml .github/labeler.yml .github/ISSUE_TEMPLATE/
+            exit 1
+          fi
+          echo "Pipeline config and generated files are in sync."

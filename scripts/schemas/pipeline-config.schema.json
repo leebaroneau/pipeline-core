@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipeline-core.example/pipeline-config.schema.json",
+  "title": "Pipeline Core deployment configuration",
+  "type": "object",
+  "required": ["schema_version", "deployment", "domains", "components", "path_mappings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Bumped on breaking changes."
+    },
+    "deployment": {
+      "type": "object",
+      "required": ["installation_id", "cron_timezone"],
+      "additionalProperties": false,
+      "properties": {
+        "installation_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "cron_timezone": {
+          "type": "string",
+          "minLength": 3
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+            "minLength": 2,
+            "maxLength": 32
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+            "minLength": 2,
+            "maxLength": 32
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "path_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["paths", "labels"],
+        "additionalProperties": false,
+        "properties": {
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "labels": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^(domain|component):[a-z0-9][a-z0-9-]*[a-z0-9]$"
+            }
+          }
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drift_report": {
+          "type": "object",
+          "required": ["type"],
+          "oneOf": [
+            {
+              "properties": {
+                "type": { "const": "github_comment" },
+                "target_issue": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["target_issue"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "drift_scan_schedule": {
+          "type": "string",
+          "pattern": "^([0-9*,/-]+\\s+){4}[0-9*,/-]+$"
+        }
+      }
+    },
+    "reviewer_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_required_reviewers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "by_component": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        }
+      }
+    }
+  }
+}

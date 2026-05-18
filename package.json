@@ -1,0 +1,19 @@
+{
+  "name": "pipeline-core-standalone",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test 'tests/**/*.test.mjs'",
+    "validate": "node scripts/validate-config.mjs",
+    "generate": "node scripts/generate-labels.mjs && node scripts/generate-labeler.mjs && node scripts/generate-templates.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "js-yaml": "^4.1.0"
+  }
+}
