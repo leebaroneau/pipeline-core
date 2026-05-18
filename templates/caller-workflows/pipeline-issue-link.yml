@@ -7,7 +7,7 @@ on:
 
 jobs:
   issue-link:
-    uses: <org>/pipeline-core/.github/workflows/issue-link.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/issue-link.yml@v1
     permissions:
       contents: read
       statuses: write

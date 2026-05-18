@@ -7,7 +7,7 @@ on:
 
 jobs:
   triage-gate:
-    uses: <org>/pipeline-core/.github/workflows/triage-gate.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/triage-gate.yml@v1
     permissions:
       contents: read
       issues: write

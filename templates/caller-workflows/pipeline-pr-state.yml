@@ -7,7 +7,7 @@ on:
 
 jobs:
   pr-state:
-    uses: <org>/pipeline-core/.github/workflows/pr-state.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/pr-state.yml@v1
     permissions:
       contents: read
       issues: write

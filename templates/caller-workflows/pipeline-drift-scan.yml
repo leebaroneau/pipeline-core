@@ -20,7 +20,7 @@ on:
 
 jobs:
   drift-scan:
-    uses: <org>/pipeline-core/.github/workflows/drift-scan.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/drift-scan.yml@v1
     permissions:
       contents: read
       issues: write

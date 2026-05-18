@@ -23,7 +23,7 @@ jobs:
       - name: Checkout pipeline-core
         uses: actions/checkout@v5
         with:
-          repository: <org>/pipeline-core
+          repository: leebaroneau/pipeline-core
           ref: v1
           path: .pipeline-core
 

@@ -7,7 +7,7 @@ on:
 
 jobs:
   branch-name:
-    uses: <org>/pipeline-core/.github/workflows/branch-name.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/branch-name.yml@v1
     permissions:
       contents: read
       statuses: write

@@ -7,7 +7,7 @@ on:
 
 jobs:
   issue-templated:
-    uses: <org>/pipeline-core/.github/workflows/issue-templated.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/issue-templated.yml@v1
     permissions:
       issues: write
     with:

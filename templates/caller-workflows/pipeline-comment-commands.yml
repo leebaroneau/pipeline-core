@@ -7,7 +7,7 @@ on:
 
 jobs:
   comment-commands:
-    uses: <org>/pipeline-core/.github/workflows/comment-commands.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/comment-commands.yml@v1
     permissions:
       contents: read
       issues: write
