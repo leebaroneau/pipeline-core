@@ -5,12 +5,9 @@ on:
   pull_request:
     paths:
       - '.github/pipeline-config.yml'
-      - 'scripts/pipeline/lib/universal-labels.mjs'
-      - 'scripts/pipeline/generate-*.mjs'
       - '.github/labels.yml'
       - '.github/labeler.yml'
       - '.github/ISSUE_TEMPLATE/**'
-      - 'scripts/pipeline/lib/slash-commands.mjs'
       - 'README.md'
       - '00_resources/pipeline-core/README.md'
     types: [opened, synchronize]
