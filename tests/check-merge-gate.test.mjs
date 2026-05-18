@@ -75,6 +75,17 @@ test("CI statuses prefixed with `pipeline/` are NOT counted as required CI (they
   assert.equal(result.ok, true);
 });
 
+test("merge-gate's own check run is NOT counted as required CI", () => {
+  const result = checkMergeGate(ctx({
+    ciStatuses: [
+      { context: "validate-and-check-drift", state: "success" },
+      { context: "merge-gate / evaluate", state: "pending" },
+    ],
+  }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.failures, []);
+});
+
 test("reports multiple failures at once", () => {
   const result = checkMergeGate(ctx({
     branchName: "feature/x",
