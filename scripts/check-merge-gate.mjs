@@ -6,6 +6,8 @@
 import { checkBranchName } from "./check-branch-name.mjs";
 import { checkIssueLink } from "./check-issue-link.mjs";
 
+const SELF_CI_CONTEXTS = new Set(["merge-gate / evaluate"]);
+
 export function checkMergeGate({
   branchName,
   prBody,
@@ -45,6 +47,7 @@ export function checkMergeGate({
   const ciList = ciStatuses || [];
   const failingCi = ciList
     .filter((s) => !s.context.startsWith("pipeline/"))
+    .filter((s) => !SELF_CI_CONTEXTS.has(s.context))
     .filter((s) => s.state !== "success");
   if (failingCi.length > 0) {
     const names = failingCi.map((s) => `${s.context} (${s.state})`).join(", ");
