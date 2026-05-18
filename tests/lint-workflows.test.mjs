@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lintWorkflows } from "../scripts/lint-workflows.mjs";
+import { discoverWorkflows, lintWorkflows } from "../scripts/lint-workflows.mjs";
 
 const FIX = join(import.meta.dirname, "fixtures");
 
@@ -43,4 +45,14 @@ test("lintWorkflows formats sticky-comment body when failures present", () => {
   });
   assert.ok(result.commentBody.includes("## Workflow lint failures"));
   assert.ok(result.commentBody.includes("missing permissions"));
+});
+
+test("discoverWorkflows only returns pipeline workflow files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "workflow-lint-"));
+  writeFileSync(join(dir, "pipeline-branch-name.yml"), "name: Pipeline — branch-name\n");
+  writeFileSync(join(dir, "sync-roadmaps.yml"), "name: Sync GitHub Roadmaps\n");
+
+  const workflows = discoverWorkflows(dir);
+
+  assert.deepEqual(workflows.map((w) => w.filename), ["pipeline-branch-name.yml"]);
 });

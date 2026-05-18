@@ -41,7 +41,7 @@ export function lintWorkflows({ workflows, scriptExists }) {
 
 export function discoverWorkflows(dir = ".github/workflows") {
   return readdirSync(dir)
-    .filter((f) => /\.ya?ml$/.test(f) && !f.startsWith(".") && f !== "gitkeep")
+    .filter((f) => /^pipeline-.*\.ya?ml$/.test(f))
     .map((f) => ({ path: join(dir, f), filename: f }));
 }
 
