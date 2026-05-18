@@ -7,7 +7,7 @@ on:
 
 jobs:
   pr-closed:
-    uses: <org>/pipeline-core/.github/workflows/pr-closed.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/pr-closed.yml@v1
     permissions:
       contents: read
       issues: write

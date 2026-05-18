@@ -9,7 +9,7 @@ on:
 
 jobs:
   labels-validate:
-    uses: <org>/pipeline-core/.github/workflows/labels-validate.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/labels-validate.yml@v1
     permissions:
       contents: read
       issues: write

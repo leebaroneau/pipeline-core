@@ -23,5 +23,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/<org>/pipeline-core/compare/v1.0.0...HEAD
-[v1.0.0]: https://github.com/<org>/pipeline-core/releases/tag/v1.0.0
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.0...HEAD
+[v1.0.0]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.0

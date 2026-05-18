@@ -10,7 +10,7 @@ on:
 
 jobs:
   labels-sync:
-    uses: <org>/pipeline-core/.github/workflows/labels-sync.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/labels-sync.yml@v1
     permissions:
       contents: read
       issues: write

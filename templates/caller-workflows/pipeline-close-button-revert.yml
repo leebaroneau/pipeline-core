@@ -7,7 +7,7 @@ on:
 
 jobs:
   close-button-revert:
-    uses: <org>/pipeline-core/.github/workflows/close-button-revert.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/close-button-revert.yml@v1
     permissions:
       contents: read
       issues: write

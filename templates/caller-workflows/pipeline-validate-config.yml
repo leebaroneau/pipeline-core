@@ -17,7 +17,7 @@ on:
 
 jobs:
   validate-config:
-    uses: <org>/pipeline-core/.github/workflows/validate-config.yml@v1
+    uses: leebaroneau/pipeline-core/.github/workflows/validate-config.yml@v1
     permissions:
       contents: read
     with:
