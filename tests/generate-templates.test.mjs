@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { buildTemplate } from "../scripts/generate-templates.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(__dirname, "..", "..", "..");
+const REPO_ROOT = join(__dirname, "..");
 
 const skeleton = `name: Test
 body:
@@ -64,8 +64,8 @@ test("buildTemplate is deterministic", () => {
 test("generate-templates.mjs CLI accepts custom out-dir as argv[3]", () => {
   const dir = mkdtempSync(join(tmpdir(), "tpl-"));
   const result = spawnSync("node", [
-    "scripts/pipeline/generate-templates.mjs",
-    ".github/pipeline-config.yml",
+    "scripts/generate-templates.mjs",
+    "templates/pipeline-config.yml.example",
     dir,
   ], { encoding: "utf8", cwd: REPO_ROOT });
   assert.equal(result.status, 0, `stderr: ${result.stderr}`);
