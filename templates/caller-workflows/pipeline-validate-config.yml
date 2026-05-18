@@ -8,12 +8,13 @@ on:
       - ".github/labels.yml"
       - ".github/labeler.yml"
       - ".github/ISSUE_TEMPLATE/**"
-      - "scripts/pipeline/**"
   push:
     branches: [main]
     paths:
       - ".github/pipeline-config.yml"
-      - "scripts/pipeline/**"
+      - ".github/labels.yml"
+      - ".github/labeler.yml"
+      - ".github/ISSUE_TEMPLATE/**"
 
 jobs:
   validate-config:

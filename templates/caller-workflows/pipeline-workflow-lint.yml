@@ -5,7 +5,6 @@ on:
   pull_request:
     paths:
       - '.github/workflows/pipeline-*.yml'
-      - 'scripts/pipeline/**'
       - '.github/pipeline-config.yml'
     types: [opened, synchronize]
 
