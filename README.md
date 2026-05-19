@@ -19,6 +19,7 @@ A config-driven, hypothesis-led production pipeline for any GitHub repo. Drive i
 - **PR gates** — branch-name, issue-link, path labels, merge-gate, results-gate
 - **Slash commands** — `/ready`, `/grab`, `/release`, `/iterate`, `/refuted`, `/duplicate`, `/wontfix`, `/cnr`, `/block`, `/unblock`, `/park`, `/unpark`, `/reopen`, `/needs-info`, `/info-resolved`
 - **Self-maintenance** — workflow-lint and drift-scan keep generated artifacts in sync
+- **Install doctor** — `make pipeline-doctor` (or `node scripts/doctor.mjs --repo /path/to/consumer`) does a non-mutating setup-health check on a consumer repo: config validation, artifact drift, caller upstream/major pin, and (with `GITHUB_TOKEN`) branch-protection enforcement
 
 ## Versioning
 
