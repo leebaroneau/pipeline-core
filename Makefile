@@ -1,5 +1,6 @@
 .PHONY: pipeline-install pipeline-test pipeline-validate pipeline-generate \
-        pipeline-lint-workflows pipeline-check-drift pipeline-check-labels
+        pipeline-lint-workflows pipeline-check-drift pipeline-check-labels \
+        pipeline-doctor
 
 pipeline-install:
 	npm ci
@@ -23,3 +24,8 @@ pipeline-check-drift:
 
 pipeline-check-labels:
 	node scripts/check-label-catalog.mjs
+
+# Install doctor — read-only setup-health check for a consumer repo.
+# Pass REPO=/path/to/consumer to point it elsewhere; defaults to cwd.
+pipeline-doctor:
+	node scripts/doctor.mjs --repo "$${REPO:-.}"
