@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/install.mjs` — one-shot installer that wires Pipeline Core into a consumer repo. Copies all 16 caller workflows, drops a starter `pipeline-config.yml` with the repo's derived `installation_id`, seeds `ISSUE_TEMPLATE/config.yml`, and optionally opens an install PR via `gh` (`--auto-pr`). Idempotent: refuses to overwrite an existing config. Exposed as `make pipeline-bootstrap` for batch rollout across multiple repos. (org-wide rollout phase 1.1)
+- Self-CI: new `.github/workflows/ci.yml` runs the test suite, config validation, workflow lint, and an end-to-end install→doctor smoke against a scaffolded consumer on every PR and push to main. Closes the gap where pipeline-core's own PRs ran zero checks while ~15+ downstream consumers depended on `@v1`. (org-wide rollout phase 1.2)
+
 ## [v1.0.6] — 2026-05-19
 
 ### Added
