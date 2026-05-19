@@ -17,7 +17,7 @@ jobs:
     if: ${{ !contains(github.event.issue.user.type, 'Bot') }}
     steps:
       - name: Close if missing one of the known template signatures
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           CONFIG_PATH: ${{ inputs.config-path }}
         with:
