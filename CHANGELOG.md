@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.7] — 2026-05-19
+
 ### Added
 
-- `scripts/install.mjs` — one-shot installer that wires Pipeline Core into a consumer repo. Copies all 16 caller workflows, drops a starter `pipeline-config.yml` with the repo's derived `installation_id`, seeds `ISSUE_TEMPLATE/config.yml`, and optionally opens an install PR via `gh` (`--auto-pr`). Idempotent: refuses to overwrite an existing config. Exposed as `make pipeline-bootstrap` for batch rollout across multiple repos. (org-wide rollout phase 1.1)
-- Self-CI: new `.github/workflows/ci.yml` runs the test suite, config validation, workflow lint, and an end-to-end install→doctor smoke against a scaffolded consumer on every PR and push to main. Closes the gap where pipeline-core's own PRs ran zero checks while ~15+ downstream consumers depended on `@v1`. (org-wide rollout phase 1.2)
-- Reusable `.github/workflows/doctor.yml` + caller template `templates/caller-workflows/pipeline-doctor.yml`. The reusable workflow runs the CLI doctor inside CI with `github-script`'s authenticated client wired into the branch-protection check, fails the job on doctor failure, and exposes `ok`/`report`/`result` outputs so an org-level fleet cron can aggregate health across all consumer repos. Optional `post-sticky: "true"` input lets scheduled runs append to a long-running tracker issue. (org-wide rollout phase 1.3 — finishes the deferred half of #4)
+- `scripts/install.mjs` — one-shot installer (`make pipeline-bootstrap`) that wires Pipeline Core into a consumer repo: copies all 17 caller workflows (including the new `pipeline-doctor.yml`), renders a starter `pipeline-config.yml` with a derived `installation_id`, seeds `ISSUE_TEMPLATE/config.yml`, runs the labels/labeler/ISSUE_TEMPLATE generators so the install is doctor-clean out of the box, and optionally opens an install PR via `gh` (`--auto-pr`). Idempotent: refuses to overwrite an existing config; `--auto-pr` pre-flights working-tree cleanliness and branch availability before touching the filesystem. (org-wide rollout phase 1.1)
+- Self-CI: new `.github/workflows/ci.yml` runs the test suite, config validation, and an end-to-end install → doctor round-trip against a scratch consumer on every PR and push to main. Closes the gap where pipeline-core's own PRs ran zero checks while downstream consumers depended on `@v1`. (org-wide rollout phase 1.2)
+- Reusable `.github/workflows/doctor.yml` + caller template `templates/caller-workflows/pipeline-doctor.yml`. The reusable workflow runs the CLI doctor inside CI with `github-script`'s authenticated client wired into the branch-protection check, fails the job on doctor failure, and exposes `ok`/`report`/`result` outputs so an org-level fleet cron can aggregate health across all consumer repos. Optional `post-sticky: "true"` appends to a long-running tracker issue and auto-dedupes concurrent-run duplicates. (org-wide rollout phase 1.3 — finishes the deferred half of #4)
 
 ## [v1.0.6] — 2026-05-19
 
@@ -39,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.7...HEAD
+[v1.0.7]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.7
 [v1.0.6]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.6
 [v1.0.0]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.0
