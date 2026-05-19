@@ -11,6 +11,7 @@ import {
   planInstall,
   applyInstall,
   generateArtifactsForInstall,
+  relativizePath,
 } from "../scripts/install.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -213,4 +214,37 @@ test("install + generate: full doctor (artifacts included) passes end-to-end", a
   });
   assert.ok(result.ok, `expected doctor to pass on a freshly installed+generated repo. Got:\n${formatReport(result)}`);
   assert.equal(result.failures.length, 0);
+});
+
+// Regression: the previous implementation used
+// `p.startsWith(repoDir) ? p.slice(repoDir.length + 1) : p` to compute the
+// path string handed to `git add` and printed in the install summary. When the
+// installer was invoked as `--repo .` (the common case from a script running
+// inside the consumer's working dir), the substring check matched any
+// leading-dot path like `.github/foo`, then `slice(2)` chopped `.g` off the
+// front and shipped `ithub/foo` to git. git add then aborted with
+// `pathspec 'ithub/...' did not match any files` and the auto-PR died
+// half-written. This lock keeps relativizePath honest for the dot-cwd case
+// and a handful of other repoDir shapes.
+test("relativizePath: `--repo .` keeps `.github/*` intact (not `ithub/*`)", () => {
+  assert.equal(relativizePath(".", ".github/pipeline-config.yml"), ".github/pipeline-config.yml");
+  assert.equal(relativizePath(".", ".github/workflows/pipeline-doctor.yml"), ".github/workflows/pipeline-doctor.yml");
+  assert.equal(relativizePath(".", "docs/pipeline-core.md"), "docs/pipeline-core.md");
+});
+
+test("relativizePath: absolute repoDir strips the prefix correctly", () => {
+  assert.equal(
+    relativizePath("/tmp/clone", "/tmp/clone/.github/pipeline-config.yml"),
+    ".github/pipeline-config.yml",
+  );
+  assert.equal(
+    relativizePath("/tmp/clone", "/tmp/clone/docs/pipeline-core.md"),
+    "docs/pipeline-core.md",
+  );
+});
+
+test("relativizePath: empty relative (path === repoDir) falls back to input", () => {
+  // relative("foo", "foo") returns "" — useful sentinel that means "same path"
+  // but a literally-empty arg would explode `git add`, so we fall back.
+  assert.equal(relativizePath("/tmp/x", "/tmp/x"), "/tmp/x");
 });

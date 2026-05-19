@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.11] — 2026-05-20
+
+### Fixed
+
+- `scripts/install.mjs --auto-pr` blew up in two places when invoked as `--repo .` (the common case from a script that has already `cd`'d into the consumer repo):
+  - The path-stringification used `p.startsWith(repoDir) ? p.slice(repoDir.length + 1) : p`. With `repoDir === "."`, the substring check matched every leading-dot path (`.github/...`), and `slice(2)` chopped two chars off the front, so `git add` received `ithub/pipeline-config.yml` and aborted with `pathspec did not match any files`. The auto-PR died half-written. Replaced with `path.relative()` via a new exported helper `relativizePath(repoDir, absPath)`.
+  - `gh pr create` was called without `--head`, so it relied on the local branch's upstream tracking. Empirically `git push -u origin <branch>` doesn't always set tracking on a fresh branch (race or config-dependent), and gh then aborted with "you must first push the current branch to a remote, or use the --head flag". Now passes `--head <branch>` explicitly so it works regardless of local tracking state.
+- Both were latent since v1.0.7 (when `--auto-pr` shipped). Surfaced during the org-wide fan-out on 2026-05-19 when 50+ consumer repos were being installed via `node /path/to/install.mjs --repo . --auto-pr` inside fresh shallow clones — the same pattern works fine with an absolute `--repo /abs/path` argument because the substring check no longer hits the leading-dot edge case.
+
+### Tests
+
+- 3 new regression tests on `relativizePath`: locks the dot-cwd case, absolute repoDir, and `path === repoDir` empty-fallback. Suite: 271/271 pass.
+
 ## [v1.0.10] — 2026-05-19
 
 ### Added — fleet infrastructure (versioned, shared across orgs)
@@ -76,7 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.10...HEAD
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.11...HEAD
+[v1.0.11]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.11
 [v1.0.10]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.10
 [v1.0.9]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.9
 [v1.0.8]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.8
