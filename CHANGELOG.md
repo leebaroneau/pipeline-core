@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.6] — 2026-05-19
+
 ### Added
 
 - `scripts/doctor.mjs` — non-mutating install doctor for consumer repos. Validates `pipeline-config.yml`, diffs generated artifacts against the current generators, verifies caller workflows reference the expected upstream and `@v1` (or pinned `@v1.x.y`), and optionally checks that branch protection on `main` requires `pipeline/merge-gate`. Plan-gated `403` responses from the GitHub branch-protection API are surfaced as a warning with a specific upgrade-or-make-public remediation rather than a failure. Exposed as `make pipeline-doctor` and runnable from any cloned consumer repo. (#4)
@@ -31,5 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.6...HEAD
+[v1.0.6]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.6
 [v1.0.0]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.0
