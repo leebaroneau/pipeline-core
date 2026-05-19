@@ -160,7 +160,7 @@ test("applyInstall: a freshly installed repo passes the doctor's config + caller
 
 // ─── generateArtifactsForInstall + full doctor round-trip ──────────────────
 
-test("generateArtifactsForInstall: produces labels.yml, labeler.yml, all ISSUE_TEMPLATE/*.yml", () => {
+test("generateArtifactsForInstall: produces labels.yml, labeler.yml, all ISSUE_TEMPLATE/*.yml, and docs/pipeline-core.md", () => {
   const dir = mkdtempSync(join(tmpdir(), "install-gen-"));
   const plan = planInstall({ repoDir: dir });
   applyInstall({ ops: plan.ops, installationId: "gen-test" });
@@ -171,6 +171,29 @@ test("generateArtifactsForInstall: produces labels.yml, labeler.yml, all ISSUE_T
   // All 4 issue templates (bug, improvement, spike, experiment) get generated.
   const issueCount = generated.filter((p) => p.includes(".github/ISSUE_TEMPLATE/") && p.endsWith(".yml")).length;
   assert.ok(issueCount >= 4, `expected >= 4 ISSUE_TEMPLATE files, got ${issueCount}`);
+  // docs/pipeline-core.md is required so the consumer's drift-scan finds the
+  // slash-command documentation (the v1.0.9 sandbox-caught friction point).
+  assert.ok(generated.some((p) => p.endsWith("docs/pipeline-core.md")), "expected docs/pipeline-core.md");
+});
+
+test("install pipeline + drift-scan slash-doc check: passes end-to-end on a freshly installed repo", async () => {
+  const { checkSlashCommandDocs } = await import("../scripts/check-slash-command-docs.mjs");
+  const { slashCommands } = await import("../scripts/lib/slash-commands.mjs");
+  const { readFileSync } = await import("node:fs");
+
+  const dir = mkdtempSync(join(tmpdir(), "install-slash-docs-"));
+  const plan = planInstall({ repoDir: dir });
+  applyInstall({ ops: plan.ops, installationId: "slash-docs-roundtrip" });
+  generateArtifactsForInstall({ repoDir: dir });
+
+  // Simulate what drift-scan does on the consumer: read the doc files and
+  // pass them through checkSlashCommandDocs.
+  const docs = {};
+  for (const p of ["README.md", "docs/pipeline-core.md"]) {
+    try { docs[p] = readFileSync(join(dir, p), "utf8"); } catch { /* skip */ }
+  }
+  const result = checkSlashCommandDocs({ commands: slashCommands, docs });
+  assert.ok(result.ok, `expected slash-command docs check to pass after install; failures: ${result.failures.join("; ")}`);
 });
 
 test("install + generate: full doctor (artifacts included) passes end-to-end", async () => {
