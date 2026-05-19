@@ -1,0 +1,29 @@
+# .github/workflows/fleet.yml  (in an org's `.github` repo)
+#
+# Caller for pipeline-core's reusable fleet workflow. Each org has its own copy
+# with its own `owner:` value pointing at itself. The reusable workflow handles
+# the actual audit + discovery + tracker update.
+
+name: Fleet — doctor + discover
+
+on:
+  schedule:
+    - cron: "0 9 * * *"  # daily 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [doctor, discover, both]
+        default: doctor
+        description: doctor=audit existing repos · discover=find new ones · both
+
+jobs:
+  fleet:
+    uses: leebaroneau/pipeline-core/.github/workflows/fleet.yml@v1
+    permissions:
+      contents: write
+    with:
+      owner: {{OWNER}}              # The installer replaces this with the org name (e.g. Haverford-Brands)
+      mode: ${{ inputs.mode || 'both' }}
+    secrets:
+      FLEET_PAT: ${{ secrets.FLEET_PAT }}

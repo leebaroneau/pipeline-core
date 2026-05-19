@@ -1,0 +1,4 @@
+{
+  "_comment": "Per-org allowlist of repos under Pipeline Core management. Each entry: {owner, name, branch (default main), tier (1=active code, 2=theme), notes}. The fleet doctor audits each daily.",
+  "repos": []
+}

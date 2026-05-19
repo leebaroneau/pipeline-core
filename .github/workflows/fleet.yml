@@ -1,0 +1,123 @@
+# .github/workflows/fleet.yml
+#
+# Reusable fleet workflow. Each org's `.github` repo (or any other "fleet-
+# manager" repo) calls this with its own owner/config. The workflow runs
+# discovery, the install doctor across the managed repos, refreshes the tracker
+# in the caller's README, and commits the updated state back.
+#
+# Auth: caller passes its own FLEET_PAT secret (scoped to its org) via
+# `secrets: inherit` or explicit secret-mapping.
+#
+# Inputs:
+#   owner              the org whose repos to audit (e.g. "Haverford-Brands")
+#   mode               "doctor" (default) | "discover" | "both"
+#   config-dir         where to find repos.json + skip.json (default: "config")
+#   state-dir          where to write results + discovery state (default: "state")
+#   readme-path        which README to splice the tracker section into (default: "README.md")
+#   commit-changes     "true"/"false" — commit state + README updates back (default: "true")
+
+name: Fleet — doctor + discover
+
+on:
+  workflow_call:
+    inputs:
+      owner:
+        type: string
+        required: true
+      mode:
+        type: string
+        required: false
+        default: doctor
+      config-dir:
+        type: string
+        required: false
+        default: config
+      state-dir:
+        type: string
+        required: false
+        default: state
+      readme-path:
+        type: string
+        required: false
+        default: README.md
+      commit-changes:
+        type: string
+        required: false
+        default: "true"
+    secrets:
+      FLEET_PAT:
+        required: true
+        description: PAT with repo + read:org for the target org
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fleet-${{ inputs.owner }}
+  cancel-in-progress: false
+
+jobs:
+  fleet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout caller (fleet manager) repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core at v1
+        uses: actions/checkout@v5
+        with:
+          repository: leebaroneau/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install pipeline-core deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Run fleet doctor (audit managed repos)
+        if: inputs.mode == 'doctor' || inputs.mode == 'both'
+        env:
+          FLEET_PAT: ${{ secrets.FLEET_PAT }}
+          CONFIG_PATH: ${{ inputs.config-dir }}/repos.json
+          RESULTS_PATH: ${{ inputs.state-dir }}/results.json
+        run: node .pipeline-core/scripts/fleet-doctor.mjs
+
+      - name: Run discovery (find unmanaged repos in the org)
+        if: inputs.mode == 'discover' || inputs.mode == 'both'
+        env:
+          FLEET_PAT: ${{ secrets.FLEET_PAT }}
+          OWNER: ${{ inputs.owner }}
+          CONFIG_DIR: ${{ inputs.config-dir }}
+          STATE_DIR: ${{ inputs.state-dir }}
+        run: node .pipeline-core/scripts/discover.mjs
+
+      - name: Update tracker section in README
+        if: inputs.mode == 'doctor' || inputs.mode == 'both'
+        env:
+          RESULTS_PATH: ${{ inputs.state-dir }}/results.json
+          README_PATH: ${{ inputs.readme-path }}
+        run: node .pipeline-core/scripts/update-tracker.mjs
+
+      - name: Commit state + README updates
+        if: inputs.commit-changes == 'true'
+        env:
+          STATE_DIR: ${{ inputs.state-dir }}
+          README_PATH: ${{ inputs.readme-path }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No fleet changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$STATE_DIR" "$README_PATH" || true
+          git diff --staged --quiet && { echo "no staged changes after add"; exit 0; }
+          git commit -m "chore(fleet): doctor sweep $(date -u +%Y-%m-%dT%H:%MZ) for ${{ inputs.owner }}"
+          git push
