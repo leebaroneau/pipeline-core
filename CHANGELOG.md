@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.8] — 2026-05-19
+
+### Fixed
+
+- `templates/caller-workflows/pipeline-pr-labels.yml` was passing an undeclared `config-path:` input to the reusable `pr-labels.yml`, which only accepts `labeler-config:`. GitHub Actions rejected the unknown input with `startup_failure`, silently breaking path-based PR labelling on every consumer install (including lee-dashboard) since v1.0.0. Removed the stray `config-path:` line. Found by the sandbox install validation that proved out v1.0.7 end-to-end. (#17)
+
+### Added
+
+- `tests/caller-inputs.test.mjs` — cross-references every caller template's `with:` keys against the declared `inputs:` on its supplier reusable workflow. Hard-fails CI on drift, preventing this class of `startup_failure` from ever reaching a consumer again. One test per caller template. (#17)
+
 ## [v1.0.7] — 2026-05-19
 
 ### Added
@@ -41,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.8...HEAD
+[v1.0.8]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.8
 [v1.0.7]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.7
 [v1.0.6]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.6
 [v1.0.0]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.0
