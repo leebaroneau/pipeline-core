@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.9] — 2026-05-19
+
+### Fixed
+
+- Fresh consumer installs failed `pipeline-drift-scan` with "Slash command /X is enabled but undocumented" because the slash-command doc check only looked at `README.md` and the lee-dashboard-specific `00_resources/pipeline-core/README.md`. The installer now writes `docs/pipeline-core.md` with the full slash-command vocabulary; both `check-drift.mjs` and `check-slash-command-docs.mjs` learn the new path. (#19)
+
+### Added
+
+- `scripts/generate-slash-docs.mjs` — generator that emits `docs/pipeline-core.md` from `scripts/lib/slash-commands.mjs`. Exposed as `make pipeline-generate-docs` so consumers can refresh the file after pipeline-core adds/removes commands.
+- `tests/generate-slash-docs.test.mjs` (4 tests) + an install → drift-scan round-trip in `tests/install.test.mjs` that catches this class of friction in CI. (#19)
+
 ## [v1.0.8] — 2026-05-19
 
 ### Fixed
@@ -51,7 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.8...HEAD
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.9...HEAD
+[v1.0.9]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.9
 [v1.0.8]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.8
 [v1.0.7]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.7
 [v1.0.6]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.6
