@@ -3,9 +3,38 @@
 const RESOLUTION_LABELS = new Set(["refuted", "duplicate", "wontfix", "cnr"]);
 const CLOSURE_COMMANDS = /^\s*\/(refuted|duplicate|wontfix|cnr)(\s|$)/;
 const RECENT_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
+const MERGE_REFERENCE_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
 
-export function shouldRevertClose({ labels, recentComments, mergedPrLinked }) {
-  if (mergedPrLinked) {
+function timestampMs(event) {
+  const value = event.created_at || event.createdAt;
+  return value ? new Date(value).getTime() : NaN;
+}
+
+export function hasMergedPrClosureEvent(timelineEvents = []) {
+  if (timelineEvents.some((event) => event.event === "closed" && event.commit_id != null)) {
+    return true;
+  }
+
+  const closedAt = timelineEvents
+    .filter((event) => event.event === "closed")
+    .map(timestampMs)
+    .filter((time) => !Number.isNaN(time));
+
+  if (closedAt.length === 0) {
+    return false;
+  }
+
+  return timelineEvents
+    .filter((event) => event.event === "referenced" && event.commit_id != null)
+    .map(timestampMs)
+    .filter((time) => !Number.isNaN(time))
+    .some((referenceTime) =>
+      closedAt.some((closeTime) => Math.abs(referenceTime - closeTime) <= MERGE_REFERENCE_WINDOW_MS)
+    );
+}
+
+export function shouldRevertClose({ labels, recentComments, mergedPrLinked, timelineEvents }) {
+  if (mergedPrLinked || hasMergedPrClosureEvent(timelineEvents)) {
     return { revert: false };
   }
 

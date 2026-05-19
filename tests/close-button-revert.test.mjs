@@ -48,6 +48,30 @@ test("does NOT revert when a merged PR closes via Closes #N (mergedPrLinked: tru
   assert.equal(result.revert, false);
 });
 
+test("does NOT revert when GitHub records a PR merge as a nearby referenced commit event", () => {
+  const result = shouldRevertClose({
+    labels: ["type:bug"],
+    recentComments: [],
+    timelineEvents: [
+      { event: "closed", commit_id: null, created_at: "2026-05-18T23:51:57Z" },
+      { event: "referenced", commit_id: "0ea7d28981191bbb36f5ac92848084fc8e7565c6", created_at: "2026-05-18T23:51:57Z" },
+    ],
+  });
+  assert.equal(result.revert, false);
+});
+
+test("DOES revert when an old referenced commit is unrelated to the close event", () => {
+  const result = shouldRevertClose({
+    labels: ["type:bug"],
+    recentComments: [],
+    timelineEvents: [
+      { event: "referenced", commit_id: "0ea7d28981191bbb36f5ac92848084fc8e7565c6", created_at: "2026-05-18T22:00:00Z" },
+      { event: "closed", commit_id: null, created_at: "2026-05-18T23:51:57Z" },
+    ],
+  });
+  assert.equal(result.revert, true);
+});
+
 test("does NOT revert if old command was issued (>2 min ago) — staleness check passes; revert", () => {
   const result = shouldRevertClose({
     labels: ["type:bug"],
