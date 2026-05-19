@@ -10,6 +10,7 @@ import {
   checkArtifactDrift,
   checkCallerWorkflows,
   checkBranchProtection,
+  discoverKnownWorkflows,
   runDoctor,
   formatReport,
 } from "../scripts/doctor.mjs";
@@ -22,6 +23,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const EXAMPLE_CONFIG = join(REPO_ROOT, "templates", "pipeline-config.yml.example");
 const SKELETON_DIR = join(REPO_ROOT, "scripts", "templates");
+const CALLER_TEMPLATES_DIR = join(REPO_ROOT, "templates", "caller-workflows");
+const KNOWN_WORKFLOWS = discoverKnownWorkflows(CALLER_TEMPLATES_DIR);
 
 // Build a complete, valid consumer repo on disk. Returns the path.
 function scaffoldCleanConsumer({ upstream = "leebaroneau/pipeline-core", major = "v1" } = {}) {
@@ -117,19 +120,57 @@ test("checkArtifactDrift: drift in labels.yml is reported with a diff and remedi
 
 test("checkCallerWorkflows: clean install (expected upstream + @v1) passes", () => {
   const { dir } = scaffoldCleanConsumer();
-  const result = checkCallerWorkflows({ repoDir: dir });
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
   assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
 });
 
 test("checkCallerWorkflows: clean install also accepts pinned @v1.x.y refs", () => {
   const { dir } = scaffoldCleanConsumer({ major: "v1.0.5" });
-  const result = checkCallerWorkflows({ repoDir: dir }); // expects @v1; @v1.0.5 should be accepted
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS }); // expects @v1; @v1.0.5 should be accepted
   assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
+});
+
+test("checkCallerWorkflows: rejects nonsense refs in the major line like @v1.foo", () => {
+  const { dir } = scaffoldCleanConsumer({ major: "v1.foo" });
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
+  assert.equal(result.ok, false);
+  assert.match(result.failures[0].message, /ref `v1\.foo`/);
+});
+
+test("checkCallerWorkflows: handles quoted uses: values", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doctor-quoted-"));
+  mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+  writeFileSync(
+    join(dir, ".github", "workflows", "pipeline-merge-gate.yml"),
+    'jobs:\n  merge-gate:\n    uses: "leebaroneau/pipeline-core/.github/workflows/merge-gate.yml@v1"\n',
+  );
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
+  assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
+});
+
+test("checkCallerWorkflows: catches typo in the reusable workflow filename", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doctor-typo-"));
+  mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+  writeFileSync(
+    join(dir, ".github", "workflows", "pipeline-merge-gate.yml"),
+    "jobs:\n  merge-gate:\n    uses: leebaroneau/pipeline-core/.github/workflows/merge-gat.yml@v1\n",
+  );
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
+  assert.equal(result.ok, false);
+  assert.match(result.failures[0].message, /not a known reusable workflow/);
+});
+
+test("checkCallerWorkflows: emits a warning when knownWorkflows is null (skipped typo check)", () => {
+  const { dir } = scaffoldCleanConsumer();
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: null });
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0].message, /filename validation skipped/);
 });
 
 test("checkCallerWorkflows: wrong upstream is reported with remediation", () => {
   const { dir } = scaffoldCleanConsumer({ upstream: "someone-else/pipeline-core" });
-  const result = checkCallerWorkflows({ repoDir: dir }); // expects leebaroneau/pipeline-core
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS }); // expects leebaroneau/pipeline-core
   assert.equal(result.ok, false);
   assert.equal(result.failures[0].check, "callers");
   assert.match(result.failures[0].message, /someone-else\/pipeline-core/);
@@ -138,7 +179,7 @@ test("checkCallerWorkflows: wrong upstream is reported with remediation", () => 
 
 test("checkCallerWorkflows: wrong major (@v2 when v1 expected) is reported", () => {
   const { dir } = scaffoldCleanConsumer({ major: "v2" });
-  const result = checkCallerWorkflows({ repoDir: dir });
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
   assert.equal(result.ok, false);
   assert.equal(result.failures[0].check, "callers");
   assert.match(result.failures[0].message, /ref `v2`/);
@@ -151,7 +192,7 @@ test("checkCallerWorkflows: missing @ref is reported", () => {
     join(dir, ".github", "workflows", "pipeline-merge-gate.yml"),
     "jobs:\n  merge-gate:\n    uses: leebaroneau/pipeline-core/.github/workflows/merge-gate.yml\n",
   );
-  const result = checkCallerWorkflows({ repoDir: dir });
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
   assert.equal(result.ok, false);
   assert.match(result.failures[0].message, /without an `@<ref>` pin/);
 });
@@ -159,7 +200,7 @@ test("checkCallerWorkflows: missing @ref is reported", () => {
 test("checkCallerWorkflows: no pipeline-*.yml files at all → failure with copy remediation", () => {
   const dir = mkdtempSync(join(tmpdir(), "doctor-empty-"));
   mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
-  const result = checkCallerWorkflows({ repoDir: dir });
+  const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
   assert.equal(result.ok, false);
   assert.match(result.failures[0].remediation, /templates\/caller-workflows/);
 });
@@ -223,6 +264,18 @@ test("checkBranchProtection: 403 (plan-gated) → warning, not failure, with pla
   assert.match(result.warnings[0].remediation, /GitHub Pro\/Team\/Enterprise/);
 });
 
+test("checkBranchProtection: 403 with non-plan-gated body → failure (token scope issue, not external)", async () => {
+  const octokit = octokitThrowing({
+    status: 403,
+    message: "Resource not accessible by integration",
+  });
+  const result = await checkBranchProtection({ octokit, owner: "o", repo: "r" });
+  assert.equal(result.ok, false);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0].message, /returned 403/);
+  assert.match(result.failures[0].remediation, /administration:read/);
+});
+
 test("checkBranchProtection: no octokit → skipped (not a failure)", async () => {
   const result = await checkBranchProtection({ octokit: null, owner: "o", repo: "r" });
   assert.equal(result.ok, true);
@@ -233,9 +286,14 @@ test("checkBranchProtection: no octokit → skipped (not a failure)", async () =
 
 test("runDoctor: clean install with no octokit → fully ok, branch protection skipped", async () => {
   const { dir } = scaffoldCleanConsumer();
-  const result = await runDoctor({ repoDir: dir, templateSkeletonsDir: SKELETON_DIR });
+  const result = await runDoctor({
+    repoDir: dir,
+    templateSkeletonsDir: SKELETON_DIR,
+    knownWorkflows: KNOWN_WORKFLOWS,
+  });
   assert.equal(result.ok, true, formatReport(result));
   assert.equal(result.failures.length, 0);
+  assert.equal(result.warnings.length, 0);
   assert.equal(result.checks.branchProtection.skipped, true);
 });
 
@@ -253,6 +311,7 @@ test("runDoctor: drift + bad caller + plan-gated 403 → ok=false (drift+caller)
   const result = await runDoctor({
     repoDir: dir,
     templateSkeletonsDir: SKELETON_DIR,
+    knownWorkflows: KNOWN_WORKFLOWS,
     octokit,
     owner: "o",
     repo: "r",
@@ -264,12 +323,70 @@ test("runDoctor: drift + bad caller + plan-gated 403 → ok=false (drift+caller)
   assert.equal(result.warnings[0].check, "branchProtection");
 });
 
-test("formatReport: includes [OK]/[FAIL]/[WARN]/[SKIP] markers and a summary line", async () => {
+test("runDoctor: clean install without knownWorkflows → ok=true with a single skipped-typo-check warning", async () => {
   const { dir } = scaffoldCleanConsumer();
   const result = await runDoctor({ repoDir: dir, templateSkeletonsDir: SKELETON_DIR });
+  assert.equal(result.ok, true, formatReport(result));
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0].check, "callers");
+});
+
+test("formatReport: includes [OK]/[FAIL]/[WARN]/[SKIP] markers and a summary line", async () => {
+  const { dir } = scaffoldCleanConsumer();
+  const result = await runDoctor({
+    repoDir: dir,
+    templateSkeletonsDir: SKELETON_DIR,
+    knownWorkflows: KNOWN_WORKFLOWS,
+  });
   const text = formatReport(result);
   assert.match(text, /\[OK\]\s+Config/);
   assert.match(text, /\[OK\]\s+Caller workflows/);
   assert.match(text, /\[SKIP\]\s+Branch protection/);
   assert.match(text, /Summary: 0 failure\(s\), 0 warning\(s\)/);
+});
+
+// ─── discoverKnownWorkflows ─────────────────────────────────────────────────
+
+test("discoverKnownWorkflows: pipeline-core's own caller templates yield merge-gate.yml etc.", () => {
+  const set = discoverKnownWorkflows(CALLER_TEMPLATES_DIR);
+  assert.ok(set, "expected a non-null Set");
+  assert.ok(set.has("merge-gate.yml"), "expected merge-gate.yml in known set");
+  assert.ok(set.has("validate-config.yml"), "expected validate-config.yml in known set");
+});
+
+test("discoverKnownWorkflows: missing dir returns null", () => {
+  const set = discoverKnownWorkflows("/nonexistent/path/for/doctor/test");
+  assert.equal(set, null);
+});
+
+// ─── Additional artifact-drift coverage (labeler.yml, ISSUE_TEMPLATE) ──────
+
+test("checkArtifactDrift: drift in labeler.yml is reported with a diff", () => {
+  const { dir, config } = scaffoldCleanConsumer();
+  writeFileSync(join(dir, ".github", "labeler.yml"), "labeler: drifted\n");
+  const result = checkArtifactDrift({ repoDir: dir, config, templateSkeletonsDir: SKELETON_DIR });
+  assert.equal(result.ok, false);
+  const fail = result.failures.find((f) => f.message.includes("labeler.yml"));
+  assert.ok(fail, "expected a labeler.yml failure");
+  assert.ok(fail.diff && fail.diff.length > 0);
+});
+
+test("checkArtifactDrift: missing ISSUE_TEMPLATE file is reported", () => {
+  const { dir, config } = scaffoldCleanConsumer();
+  // Remove one of the generated issue templates.
+  const target = join(dir, ".github", "ISSUE_TEMPLATE", "bug.yml");
+  writeFileSync(target, ""); // truncate to introduce drift
+  const driftResult = checkArtifactDrift({ repoDir: dir, config, templateSkeletonsDir: SKELETON_DIR });
+  assert.equal(driftResult.ok, false);
+  assert.ok(driftResult.failures.some((f) => f.message.includes("bug.yml")));
+});
+
+test("checkArtifactDrift: missing skeletons dir → warning, not silent skip", () => {
+  const { dir, config } = scaffoldCleanConsumer();
+  const result = checkArtifactDrift({ repoDir: dir, config, templateSkeletonsDir: undefined });
+  // labels.yml + labeler.yml still validate (no failures), but the templates
+  // step emits a warning so the operator knows it didn't run.
+  assert.equal(result.ok, true);
+  assert.ok(result.warnings.length >= 1);
+  assert.match(result.warnings[0].message, /ISSUE_TEMPLATE drift check skipped/);
 });

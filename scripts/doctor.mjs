@@ -18,7 +18,6 @@ import { join } from "node:path";
 
 import { loadConfig, ConfigLoadError } from "./lib/config.mjs";
 import { validateConfig } from "./validate-config.mjs";
-import { compareGeneratedArtifact } from "./check-drift.mjs";
 import { buildLabelsYaml } from "./generate-labels.mjs";
 import { buildLabelerYaml } from "./generate-labeler.mjs";
 import { buildTemplate } from "./generate-templates.mjs";
@@ -74,6 +73,7 @@ export function checkConfig({ repoDir, configPath = ".github/pipeline-config.yml
 
 export function checkArtifactDrift({ repoDir, config, templateSkeletonsDir }) {
   const failures = [];
+  const warnings = [];
 
   // labels.yml
   const labelsCommitted = join(repoDir, ".github", "labels.yml");
@@ -117,8 +117,15 @@ export function checkArtifactDrift({ repoDir, config, templateSkeletonsDir }) {
     }
   }
 
-  // ISSUE_TEMPLATE/*.yml — only when caller passed in the skeleton dir
-  if (templateSkeletonsDir && existsSync(templateSkeletonsDir)) {
+  // ISSUE_TEMPLATE/*.yml — requires the skeletons that ship inside pipeline-core.
+  // Surface explicitly when they aren't available so this isn't silently a no-op.
+  if (!templateSkeletonsDir || !existsSync(templateSkeletonsDir)) {
+    warnings.push({
+      check: "artifacts",
+      message: "ISSUE_TEMPLATE drift check skipped: pipeline-core template skeletons not found",
+      remediation: "Run the doctor from a checkout of pipeline-core (which provides scripts/templates/) so ISSUE_TEMPLATE files can be verified.",
+    });
+  } else {
     const skeletons = readdirSync(templateSkeletonsDir).filter((f) => f.endsWith(".yml.template"));
     for (const skel of skeletons) {
       const outName = skel.replace(/\.template$/, "");
@@ -145,7 +152,7 @@ export function checkArtifactDrift({ repoDir, config, templateSkeletonsDir }) {
     }
   }
 
-  return { ok: failures.length === 0, failures };
+  return { ok: failures.length === 0, failures, warnings };
 }
 
 function simpleDiff(a, b) {
@@ -167,9 +174,25 @@ function simpleDiff(a, b) {
 
 // ─── Check 3: caller workflows point at the expected upstream and major ─────
 
-const USES_RE = /^\s*uses:\s*([^\s#]+)/gm;
+// Matches: `uses: foo`, `uses: 'foo'`, `uses: "foo"`; strips surrounding quotes.
+const USES_RE = /^\s*uses:\s*["']?([^\s#"']+)["']?/gm;
 
-export function checkCallerWorkflows({ repoDir, upstream = DEFAULT_UPSTREAM, major = DEFAULT_MAJOR, workflowsDir = ".github/workflows" }) {
+// Acceptable refs: the floating major (e.g. `v1`) or any release in that line
+// (e.g. `v1.0.5`). Reject `v1.foo`, `v1-rc1`, `v1.x`, etc.
+function isAcceptableRef(ref, major) {
+  if (ref === major) return true;
+  // major.minor.patch with optional pre-release like -rc.1
+  const escaped = major.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}\\.\\d+\\.\\d+(?:[-+][\\w.]+)?$`).test(ref);
+}
+
+export function checkCallerWorkflows({
+  repoDir,
+  upstream = DEFAULT_UPSTREAM,
+  major = DEFAULT_MAJOR,
+  workflowsDir = ".github/workflows",
+  knownWorkflows = null, // optional Set of valid reusable-workflow filenames (e.g. "merge-gate.yml"). When null, the existence check is skipped with a warning.
+}) {
   const dir = join(repoDir, workflowsDir);
   if (!existsSync(dir)) {
     return {
@@ -201,10 +224,16 @@ export function checkCallerWorkflows({ repoDir, upstream = DEFAULT_UPSTREAM, maj
   }
 
   const failures = [];
-  // We accept references of either form:
-  //   <upstream>/.github/workflows/<name>.yml@<major>
-  //   <upstream>/.github/workflows/<name>.yml@<major.minor.patch>  (pinned to a release in the v1 line)
+  const warnings = [];
   const expectedPrefix = `${upstream}/.github/workflows/`;
+
+  if (!knownWorkflows) {
+    warnings.push({
+      check: "callers",
+      message: "Reusable-workflow filename validation skipped: caller did not provide the known-workflows set",
+      remediation: "Run the doctor from a checkout of pipeline-core so it can compare consumer caller targets to templates/caller-workflows/.",
+    });
+  }
 
   for (const file of callerFiles) {
     const content = readFileSync(join(dir, file), "utf8");
@@ -239,18 +268,31 @@ export function checkCallerWorkflows({ repoDir, upstream = DEFAULT_UPSTREAM, maj
         continue;
       }
       const ref = u.slice(atIdx + 1);
-      // Accept the floating major or any release in that major line.
-      if (ref !== major && !ref.startsWith(`${major}.`)) {
+      if (!isAcceptableRef(ref, major)) {
         failures.push({
           check: "callers",
           message: `${workflowsDir}/${file} references \`${u}\` (ref \`${ref}\`), expected \`@${major}\` or \`@${major}.x.y\``,
           remediation: `Update the ref to \`@${major}\` so the caller floats on the current major.`,
         });
+        continue;
+      }
+      // Cross-check: does the target reusable workflow filename actually exist
+      // upstream? This catches typos like `merge-gat.yml` that would otherwise
+      // silently fail at run time.
+      if (knownWorkflows) {
+        const targetName = u.slice(expectedPrefix.length, atIdx);
+        if (!knownWorkflows.has(targetName)) {
+          failures.push({
+            check: "callers",
+            message: `${workflowsDir}/${file} references \`${targetName}\` which is not a known reusable workflow in ${upstream}`,
+            remediation: `Fix the typo, or copy a caller from \`templates/caller-workflows/\` that targets a real workflow.`,
+          });
+        }
       }
     }
   }
 
-  return { ok: failures.length === 0, failures };
+  return { ok: failures.length === 0, failures, warnings };
 }
 
 // ─── Check 4: branch protection (optional, requires octokit) ────────────────
@@ -298,18 +340,37 @@ export async function checkBranchProtection({ octokit, owner, repo, branch = DEF
       };
     }
     if (err?.status === 403) {
-      // GitHub returns 403 on private repos that are not on a plan that supports
-      // branch protection (or that do not have the rulesets API enabled). This
-      // is a plan/policy gating issue, not a config gap inside the consumer
-      // repo — surface it as a warning with a specific remediation.
+      // 403 can be either:
+      //   (a) plan-gated — private repo without the GitHub plan that exposes
+      //       branch protection. GitHub returns a message containing
+      //       "Upgrade" or "make this repository public". This is an external
+      //       constraint, not a consumer-repo config gap — warn, don't fail.
+      //   (b) a missing-permission scope on the token (e.g. token doesn't
+      //       have `administration:read`). That's a fixable config issue —
+      //       fail loudly so the operator addresses it.
+      const msg = err?.message ?? "";
+      const isPlanGated = /upgrade|public|advanced security|paid plan/i.test(msg);
+      if (isPlanGated) {
+        return {
+          ok: true,
+          warnings: [
+            {
+              check: "branchProtection",
+              message: `Cannot read branch protection for \`${owner}/${repo}@${branch}\`: GitHub returned 403 (plan-gated)`,
+              remediation: "Branch protection on private repos requires GitHub Pro/Team/Enterprise (or a public repo). Until then, `pipeline/merge-gate` remains advisory — keep merging through the PR UI manually after CI passes.",
+              detail: msg,
+            },
+          ],
+        };
+      }
       return {
-        ok: true, // not a hard failure
-        warnings: [
+        ok: false,
+        failures: [
           {
             check: "branchProtection",
-            message: `Cannot read branch protection for \`${owner}/${repo}@${branch}\`: GitHub returned 403 (plan-gated)`,
-            remediation: "Branch protection on private repos requires GitHub Pro/Team/Enterprise (or a public repo). Until then, `pipeline/merge-gate` remains advisory — keep merging through the PR UI manually after CI passes.",
-            detail: err?.message ?? "",
+            message: `Cannot read branch protection for \`${owner}/${repo}@${branch}\`: GitHub returned 403`,
+            remediation: "Ensure the token has the `administration:read` (or equivalent) scope and that the user has admin access to the repo.",
+            detail: msg,
           },
         ],
       };
@@ -328,6 +389,7 @@ export async function runDoctor(opts) {
     major = DEFAULT_MAJOR,
     workflowsDir = ".github/workflows",
     templateSkeletonsDir,
+    knownWorkflows,
     octokit,
     owner,
     repo,
@@ -350,14 +412,16 @@ export async function runDoctor(opts) {
   if (configResult.ok) {
     const driftResult = checkArtifactDrift({ repoDir, config: configResult.config, templateSkeletonsDir });
     checks.artifacts = driftResult;
-    if (!driftResult.ok) failures.push(...driftResult.failures);
+    if (driftResult.failures) failures.push(...driftResult.failures);
+    if (driftResult.warnings) warnings.push(...driftResult.warnings);
   } else {
     checks.artifacts = { ok: false, skipped: true, reason: "config invalid" };
   }
 
-  const callersResult = checkCallerWorkflows({ repoDir, upstream, major, workflowsDir });
+  const callersResult = checkCallerWorkflows({ repoDir, upstream, major, workflowsDir, knownWorkflows });
   checks.callers = callersResult;
-  if (!callersResult.ok) failures.push(...callersResult.failures);
+  if (callersResult.failures) failures.push(...callersResult.failures);
+  if (callersResult.warnings) warnings.push(...callersResult.warnings);
 
   if (octokit && owner && repo) {
     const bpResult = await checkBranchProtection({ octokit, owner, repo, branch, requiredCheck });
@@ -376,6 +440,26 @@ export async function runDoctor(opts) {
   };
 }
 
+// Discover the set of valid reusable-workflow filenames by parsing each caller
+// template under `templates/caller-workflows/` and extracting the workflow file
+// each one `uses:`. This is the source of truth shipped with pipeline-core.
+export function discoverKnownWorkflows(callerTemplatesDir) {
+  if (!existsSync(callerTemplatesDir)) return null;
+  const out = new Set();
+  for (const file of readdirSync(callerTemplatesDir).filter((f) => f.endsWith(".yml"))) {
+    const body = readFileSync(join(callerTemplatesDir, file), "utf8");
+    for (const m of body.matchAll(USES_RE)) {
+      const u = m[1];
+      const i = u.indexOf("/.github/workflows/");
+      if (i === -1) continue;
+      const atIdx = u.lastIndexOf("@");
+      if (atIdx === -1) continue;
+      out.add(u.slice(i + "/.github/workflows/".length, atIdx));
+    }
+  }
+  return out;
+}
+
 export function formatReport(result) {
   const lines = [];
   lines.push("Pipeline Core install doctor");
@@ -389,12 +473,14 @@ export function formatReport(result) {
   ]) {
     const c = result.checks[name];
     if (!c) continue;
+    const hasWarnings = (c.warnings ?? []).length > 0;
+    const hasFailures = (c.failures ?? []).length > 0 || c.ok === false;
     if (c.skipped) {
       lines.push(`[SKIP] ${label}: ${c.reason}`);
-    } else if (c.ok && (!c.warnings || c.warnings.length === 0)) {
-      lines.push(`[OK]   ${label}`);
-    } else if (c.ok && c.warnings?.length) {
+    } else if (!hasFailures && hasWarnings) {
       lines.push(`[WARN] ${label}`);
+    } else if (!hasFailures) {
+      lines.push(`[OK]   ${label}`);
     } else {
       lines.push(`[FAIL] ${label}`);
     }
@@ -505,11 +591,15 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
   // Default skeleton dir: the one inside this very script's tree.
   const scriptDir = new URL(".", import.meta.url).pathname;
   const skeletonsDir = args.templateSkeletonsDir ?? join(scriptDir, "templates");
+  // Default known-workflows source: pipeline-core's caller templates.
+  const callerTemplatesDir = join(scriptDir, "..", "templates", "caller-workflows");
+  const knownWorkflows = discoverKnownWorkflows(callerTemplatesDir);
 
   const octokit = await makeOctokitFromEnv(args.owner, args.repo);
   const result = await runDoctor({
     ...args,
     templateSkeletonsDir: skeletonsDir,
+    knownWorkflows,
     octokit,
   });
 
