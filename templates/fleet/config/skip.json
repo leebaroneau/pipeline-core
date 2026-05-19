@@ -1,0 +1,4 @@
+{
+  "_comment": "Per-org denylist: repos intentionally excluded from Pipeline Core. Discovery output = (all-non-archived-non-fork repos in this org) - (repos.json) - (skip.json).",
+  "repos": []
+}
