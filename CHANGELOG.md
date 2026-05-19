@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.10] — 2026-05-19
+
+### Added — fleet infrastructure (versioned, shared across orgs)
+
+- `scripts/discover.mjs` — partitions every visible repo for a given `--owner` into managed / skipped / candidate, comparing against the caller's `config/repos.json` + `config/skip.json`. Hits `/orgs` first; only falls back to `/users` on a 404 (401/403/429 surface explicitly).
+- `scripts/fleet-doctor.mjs` — drives the install doctor across every repo in `config/repos.json`. Shallow-clones each via FLEET_PAT, runs `scripts/doctor.mjs --json` against it, aggregates ok/failures/warnings into `<state-dir>/results.json`. Token-redaction layer scrubs `x-access-token:TOKEN@` URLs from any error message before they reach logs or committed state. Skips file write entirely when semantic content is unchanged (no daily no-op commits).
+- `scripts/update-tracker.mjs` — splices a rendered table between `<!-- pipeline-fleet:tracker-start -->` markers in a target README.
+- `.github/workflows/fleet.yml` — reusable workflow consumed by each org's `.github` repo. Inputs: `owner`, `mode` (doctor/discover/both), `config-dir`, `state-dir`, `readme-path`, `commit-changes`.
+- `templates/fleet/` — drop-in skeleton (fleet.yml caller + README with tracker markers + starter config/) that an installer copies into each org's `.github` repo. `{{OWNER}}` placeholders get filled in per install.
+
+### Tests
+
+- 5 new test files (`discover`, `fleet-doctor`, `update-tracker`) totaling +22 tests. Critical coverage: `redactToken` proves the token never lands in stored output, the API fallback only triggers on 404, bad config rows partition into `invalid[]` instead of aborting the audit. Suite: 268/268 pass.
+
 ## [v1.0.9] — 2026-05-19
 
 ### Fixed
@@ -62,7 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config validation via JSON Schema Draft 2020-12 (AJV)
 - Generators for `labels.yml`, `labeler.yml`, `ISSUE_TEMPLATE/*`
 
-[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.9...HEAD
+[Unreleased]: https://github.com/leebaroneau/pipeline-core/compare/v1.0.10...HEAD
+[v1.0.10]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.10
 [v1.0.9]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.9
 [v1.0.8]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.8
 [v1.0.7]: https://github.com/leebaroneau/pipeline-core/releases/tag/v1.0.7
