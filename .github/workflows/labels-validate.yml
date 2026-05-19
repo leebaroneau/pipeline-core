@@ -30,7 +30,7 @@ jobs:
           path: .pipeline-core
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -39,7 +39,7 @@ jobs:
         run: npm ci
 
       - name: Reject if label not in .github/labels.yml
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
           CONFIG_PATH: ${{ inputs.config-path }}

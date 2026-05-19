@@ -28,7 +28,7 @@ jobs:
           path: .pipeline-core
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -47,7 +47,7 @@ jobs:
 
       - name: Run drift scan
         id: scan
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require("node:fs");
@@ -65,7 +65,7 @@ jobs:
 
       - name: Post sticky comment on PR (drift detected)
         if: github.event_name == 'pull_request' && steps.scan.outputs.ok == 'false'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { postOrUpdateSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
@@ -82,7 +82,7 @@ jobs:
 
       - name: Remove sticky on PR (no drift)
         if: github.event_name == 'pull_request' && steps.scan.outputs.ok == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { deleteSticky } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/sticky-comment.mjs`);
@@ -96,7 +96,7 @@ jobs:
 
       - name: Open or update tracking issue (cron mode, drift detected)
         if: github.event_name == 'schedule' && steps.scan.outputs.ok == 'false'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const TRACKER_MARKER = "<!-- pipeline:drift-tracker -->";
@@ -129,7 +129,7 @@ jobs:
 
       - name: Close tracking issue (cron mode, drift resolved)
         if: github.event_name == 'schedule' && steps.scan.outputs.ok == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const TRACKER_MARKER = "<!-- pipeline:drift-tracker -->";

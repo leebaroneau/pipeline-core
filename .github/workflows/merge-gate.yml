@@ -30,7 +30,7 @@ jobs:
           path: .pipeline-core
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -40,7 +40,7 @@ jobs:
 
       - name: Load reviewer policy from pipeline-config.yml
         id: policy
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
           CONFIG_PATH: ${{ inputs.config-path }}
@@ -54,7 +54,7 @@ jobs:
             core.setOutput('by_component', JSON.stringify(cfg.reviewer_policy?.by_component || {}));
 
       - name: Evaluate merge gate
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
           DEFAULT_REQUIRED: ${{ steps.policy.outputs.default_required_reviewers }}
