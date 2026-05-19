@@ -1,0 +1,62 @@
+# .github/workflows/ci.yml
+#
+# Self-CI for pipeline-core itself. Pipeline Core's own callable workflows are
+# `on: workflow_call` only, so without this job the repo's own PRs run zero
+# checks — a regression in v1.x could quietly poison every downstream consumer.
+#
+# This workflow runs on every PR and push to main. It exercises:
+#   - npm test (the unit/integration suite, ~220 tests)
+#   - validate-config against the example config
+#   - end-to-end install -> doctor round-trip against a scratch consumer
+#     (catches contract breaks between the installer and the doctor that
+#     unit tests can't see)
+#
+# We do NOT call lint-workflows.mjs here because it only scans
+# `pipeline-*.yml` (consumer caller workflows) and pipeline-core itself
+# only ships supplier reusable workflows. Lint coverage for those lives
+# in the test suite (`workflow-lint-rules.test.mjs`, `workflow-yaml.test.mjs`).
+#
+# Failing this CI blocks merge — that's the explicit point.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Validate the example config
+        run: node scripts/validate-config.mjs templates/pipeline-config.yml.example
+
+      - name: Doctor against a freshly scaffolded consumer
+        # Idempotent smoke test that proves install -> doctor stays green
+        # end-to-end inside CI. If this fails, the install or doctor shape
+        # has drifted in a way the unit tests didn't catch.
+        run: |
+          set -euo pipefail
+          SCAFFOLD=$(mktemp -d)
+          node scripts/install.mjs --repo "$SCAFFOLD" --installation-id ci-smoke
+          node scripts/doctor.mjs --repo "$SCAFFOLD"

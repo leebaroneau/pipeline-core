@@ -4,14 +4,26 @@ A config-driven, hypothesis-led production pipeline for any GitHub repo. Drive i
 
 ## Adoption (5 minutes)
 
-1. Copy `templates/pipeline-config.yml.example` to your repo at `.github/pipeline-config.yml` and edit it (set your domains, components, path mappings).
-2. Copy the caller workflows from `templates/caller-workflows/` to your repo at `.github/workflows/`.
-3. Run the bootstrap workflow:
-   ```bash
-   gh workflow run pipeline-validate-config.yml
-   gh workflow run pipeline-labels-sync.yml
-   ```
-4. Read the runbooks at `docs/runbooks/` to enable branch protection and verify the install.
+From a clone of this repo, pointed at your consumer:
+
+```bash
+make pipeline-bootstrap REPO=/path/to/your/repo
+# or, to commit + push + open an install PR via gh:
+make pipeline-bootstrap REPO=/path/to/your/repo AUTO_PR=1
+```
+
+This drops a starter `.github/pipeline-config.yml`, all 16 caller workflows, and the `ISSUE_TEMPLATE/config.yml`. Edit `pipeline-config.yml` (domains, components, path mappings), then in the consumer repo:
+
+```bash
+gh workflow run pipeline-validate-config.yml
+gh workflow run pipeline-labels-sync.yml
+```
+
+To verify the install:
+
+```bash
+make pipeline-doctor REPO=/path/to/your/repo
+```
 
 ## Components
 

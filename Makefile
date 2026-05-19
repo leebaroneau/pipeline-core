@@ -1,6 +1,6 @@
 .PHONY: pipeline-install pipeline-test pipeline-validate pipeline-generate \
         pipeline-lint-workflows pipeline-check-drift pipeline-check-labels \
-        pipeline-doctor
+        pipeline-doctor pipeline-bootstrap
 
 pipeline-install:
 	npm ci
@@ -29,3 +29,12 @@ pipeline-check-labels:
 # Pass REPO=/path/to/consumer to point it elsewhere; defaults to cwd.
 pipeline-doctor:
 	node scripts/doctor.mjs --repo "$${REPO:-.}"
+
+# Consumer installer — copies caller workflows + starter config into a repo.
+# Pass REPO=/path/to/consumer (defaults to cwd) and INSTALLATION_ID=<slug>
+# (defaults to repo dir name). Append AUTO_PR=1 to commit/push/open a PR.
+pipeline-bootstrap:
+	node scripts/install.mjs --repo "$${REPO:-.}" \
+	  $${INSTALLATION_ID:+--installation-id $${INSTALLATION_ID}} \
+	  $${CRON_TIMEZONE:+--cron-timezone $${CRON_TIMEZONE}} \
+	  $${AUTO_PR:+--auto-pr}
