@@ -64,13 +64,13 @@ jobs:
               owner, repo, issue_number,
               per_page: 50,
             });
-            const mergedPrLinked = events.some(e =>
-              e.event === 'closed' &&
-              e.commit_id !== null &&
-              e.commit_id !== undefined
-            );
+            const timelineEvents = events.map(e => ({
+              event: e.event,
+              commit_id: e.commit_id,
+              created_at: e.created_at,
+            }));
 
-            const decision = shouldRevertClose({ labels, recentComments, mergedPrLinked });
+            const decision = shouldRevertClose({ labels, recentComments, timelineEvents });
 
             if (!decision.revert) {
               console.log('Closure stands.');
