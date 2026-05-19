@@ -19,12 +19,18 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+
+import { loadConfig } from "./lib/config.mjs";
+import { buildLabelsYaml } from "./generate-labels.mjs";
+import { buildLabelerYaml } from "./generate-labeler.mjs";
+import { buildTemplate } from "./generate-templates.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PIPELINE_CORE_ROOT = join(__dirname, "..");
 const CALLER_TEMPLATES_DIR = join(PIPELINE_CORE_ROOT, "templates", "caller-workflows");
 const ISSUE_TEMPLATE_DIR = join(PIPELINE_CORE_ROOT, "templates", "ISSUE_TEMPLATE");
+const SKELETON_DIR = join(__dirname, "templates");
 const CONFIG_EXAMPLE = join(PIPELINE_CORE_ROOT, "templates", "pipeline-config.yml.example");
 
 // ─── Pure logic (testable without filesystem side effects on real repos) ────
@@ -47,16 +53,23 @@ export function renderStarterConfig({ exampleText, installationId, cronTimezone 
 }
 
 export function deriveInstallationId(repoPath) {
-  // Lowercase, replace non-[a-z0-9-] with hyphen, trim hyphens. Schema requires
-  // 2-64 chars matching [a-z0-9-]. We deliberately do NOT strip extensions
-  // because folder names like "Catnets.com.au" are legitimate repo names where
-  // the trailing ".au" is meaningful, not a file extension.
-  const raw = basename(repoPath)
+  // Schema constraint is `^[a-z0-9][a-z0-9-]*[a-z0-9]$`, length 2-64. So the
+  // first and last char must be alphanumeric (no leading/trailing hyphens),
+  // and the body is alphanumeric-or-hyphen. Truncation must not leave a
+  // trailing hyphen, and an all-punctuation basename must still produce a
+  // valid id rather than emit something that fails validation downstream.
+  //
+  // We deliberately do NOT strip file extensions because folder names like
+  // "Catnets.com.au" are legitimate repo names where the trailing ".au" is
+  // meaningful, not a file extension.
+  let raw = basename(repoPath)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  if (raw.length < 2) return `${raw}-repo`.slice(0, 64);
-  return raw.slice(0, 64);
+  if (raw.length === 0) return "pipeline-consumer";
+  raw = raw.slice(0, 64).replace(/-+$/, "");
+  if (raw.length < 2) return `${raw}-consumer`.slice(0, 64).replace(/-+$/, "");
+  return raw;
 }
 
 export function planInstall({ repoDir, callerTemplatesDir = CALLER_TEMPLATES_DIR, issueTemplateDir = ISSUE_TEMPLATE_DIR }) {
@@ -112,6 +125,34 @@ export function applyInstall({ ops, installationId, cronTimezone }) {
   return written;
 }
 
+// Run the labels / labeler / ISSUE_TEMPLATE generators against the freshly
+// written pipeline-config.yml so the consumer ends up with a doctor-clean
+// install (no artifact drift). The consumer is expected to edit the config
+// later and re-run `make pipeline-generate` — this just ensures the initial
+// commit doesn't ship a guaranteed-failing drift-scan.
+export function generateArtifactsForInstall({ repoDir, configPath = ".github/pipeline-config.yml" }) {
+  const cfg = loadConfig(join(repoDir, configPath));
+  const written = [];
+
+  const labelsPath = join(repoDir, ".github", "labels.yml");
+  writeFileSync(labelsPath, buildLabelsYaml(cfg));
+  written.push(labelsPath);
+
+  const labelerPath = join(repoDir, ".github", "labeler.yml");
+  writeFileSync(labelerPath, buildLabelerYaml(cfg));
+  written.push(labelerPath);
+
+  mkdirSync(join(repoDir, ".github", "ISSUE_TEMPLATE"), { recursive: true });
+  for (const skel of readdirSync(SKELETON_DIR).filter((f) => f.endsWith(".yml.template"))) {
+    const outName = skel.replace(/\.template$/, "");
+    const skeleton = readFileSync(join(SKELETON_DIR, skel), "utf8");
+    const dest = join(repoDir, ".github", "ISSUE_TEMPLATE", outName);
+    writeFileSync(dest, buildTemplate(skeleton, cfg));
+    written.push(dest);
+  }
+  return written;
+}
+
 // ─── Git/PR side effects (real-repo only) ───────────────────────────────────
 
 function run(cmd, args, opts = {}) {
@@ -126,11 +167,26 @@ function run(cmd, args, opts = {}) {
   return r.stdout.trim();
 }
 
-function openAutoPR({ repoDir, branch, written, upstreamMajor }) {
-  // Sanity check: cwd must be a git repo with a remote.
+// Pre-flight checks done BEFORE any file is written, so a failed --auto-pr
+// can't leave the consumer in a dirty state. Run this immediately after
+// parsing args, before applyInstall.
+export function preflightAutoPR({ repoDir, branch }) {
   run("git", ["-C", repoDir, "rev-parse", "--show-toplevel"]);
-  const remoteUrl = run("git", ["-C", repoDir, "remote", "get-url", "origin"]);
+  run("git", ["-C", repoDir, "remote", "get-url", "origin"]);
+  // Working tree must be clean — we don't want to mix our install with
+  // unrelated in-flight changes.
+  const status = run("git", ["-C", repoDir, "status", "--porcelain"]);
+  if (status) {
+    throw new Error(`--auto-pr requires a clean working tree in ${repoDir}; found uncommitted changes. Commit, stash, or clean up first.`);
+  }
+  // Branch must not already exist.
+  const r = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { stdio: "ignore" });
+  if (r.status === 0) {
+    throw new Error(`--auto-pr branch \`${branch}\` already exists in ${repoDir}; pass --branch <other-name> or delete it first.`);
+  }
+}
 
+function openAutoPR({ repoDir, branch, written, upstreamMajor }) {
   run("git", ["-C", repoDir, "checkout", "-b", branch]);
   run("git", ["-C", repoDir, "add", ...written.map((p) => p.startsWith(repoDir) ? p.slice(repoDir.length + 1) : p)]);
   run("git", ["-C", repoDir, "commit", "-m", "chore(pipeline-core): install reusable pipeline\n\nGenerated by `pipeline-core/scripts/install.mjs`."]);
@@ -219,19 +275,33 @@ async function main() {
     return 1;
   }
 
+  // Pre-flight for --auto-pr happens BEFORE we mutate the working tree.
+  if (args.autoPR) {
+    try {
+      preflightAutoPR({ repoDir, branch });
+    } catch (err) {
+      process.stderr.write(`${err.message}\n`);
+      return 1;
+    }
+  }
+
   const written = applyInstall({ ops: plan.ops, installationId, cronTimezone: args.cronTimezone });
-  process.stdout.write(`Installed Pipeline Core scaffolding (${written.length} files) under ${repoDir}\n`);
-  for (const p of written) process.stdout.write(`  ${p.startsWith(repoDir) ? p.slice(repoDir.length + 1) : p}\n`);
+  // Also generate labels/labeler/ISSUE_TEMPLATE artifacts so the install is
+  // doctor-clean out of the box.
+  const generated = generateArtifactsForInstall({ repoDir });
+  const allFiles = [...written, ...generated];
+  process.stdout.write(`Installed Pipeline Core scaffolding (${allFiles.length} files) under ${repoDir}\n`);
+  for (const p of allFiles) process.stdout.write(`  ${p.startsWith(repoDir) ? p.slice(repoDir.length + 1) : p}\n`);
 
   if (args.autoPR) {
-    const url = openAutoPR({ repoDir, branch, written, upstreamMajor });
+    const url = openAutoPR({ repoDir, branch, written: allFiles, upstreamMajor });
     if (url) process.stdout.write(`\nPR: ${url}\n`);
   } else {
     process.stdout.write([
       "",
       "Next steps (review and commit):",
-      `  1. Edit .github/pipeline-config.yml — set installation_id (now: ${installationId}), domains, components, path_mappings.`,
-      "  2. Run `make pipeline-generate` from a pipeline-core checkout to regenerate labels.yml/labeler.yml/ISSUE_TEMPLATE/*.",
+      `  1. Edit .github/pipeline-config.yml — installation_id is now \`${installationId}\`; edit domains, components, path_mappings.`,
+      "  2. If you edited the config, re-run `make pipeline-generate` (from a pipeline-core checkout) to refresh labels.yml / labeler.yml / ISSUE_TEMPLATE/*.",
       "  3. Open a PR with these changes; after merge, run `gh workflow run pipeline-labels-sync.yml` to create the labels.",
       "  4. `make pipeline-doctor REPO=.` from a pipeline-core checkout to verify health.",
       "",

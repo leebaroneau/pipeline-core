@@ -10,6 +10,7 @@ import {
   renderStarterConfig,
   planInstall,
   applyInstall,
+  generateArtifactsForInstall,
 } from "../scripts/install.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,24 @@ test("deriveInstallationId: pads short names to satisfy 2-char minimum", () => {
 test("deriveInstallationId: truncates to 64 chars", () => {
   const huge = "/x/" + "a".repeat(200);
   assert.ok(deriveInstallationId(huge).length <= 64);
+});
+
+test("deriveInstallationId: truncation never leaves a trailing hyphen (schema requires alnum end)", () => {
+  // 65 alnum chars then `--` would get truncated to 64 ending in `-`.
+  const tricky = "/x/" + "a".repeat(63) + "--";
+  const id = deriveInstallationId(tricky);
+  assert.doesNotMatch(id, /-$/, `id should not end with hyphen: ${id}`);
+});
+
+test("deriveInstallationId: all-punctuation basename returns a valid fallback", () => {
+  const id = deriveInstallationId("/x/....");
+  assert.match(id, /^[a-z0-9][a-z0-9-]*[a-z0-9]$/, `id must match schema regex: ${id}`);
+});
+
+test("deriveInstallationId: single-char basename returns a valid ≥2-char id", () => {
+  const id = deriveInstallationId("/x/a");
+  assert.ok(id.length >= 2);
+  assert.match(id, /^[a-z0-9][a-z0-9-]*[a-z0-9]$/);
 });
 
 // ─── renderStarterConfig ────────────────────────────────────────────────────
@@ -137,4 +156,38 @@ test("applyInstall: a freshly installed repo passes the doctor's config + caller
 
   const callers = checkCallerWorkflows({ repoDir: dir, knownWorkflows: known });
   assert.ok(callers.ok, JSON.stringify(callers.failures, null, 2));
+});
+
+// ─── generateArtifactsForInstall + full doctor round-trip ──────────────────
+
+test("generateArtifactsForInstall: produces labels.yml, labeler.yml, all ISSUE_TEMPLATE/*.yml", () => {
+  const dir = mkdtempSync(join(tmpdir(), "install-gen-"));
+  const plan = planInstall({ repoDir: dir });
+  applyInstall({ ops: plan.ops, installationId: "gen-test" });
+
+  const generated = generateArtifactsForInstall({ repoDir: dir });
+  assert.ok(generated.some((p) => p.endsWith(".github/labels.yml")));
+  assert.ok(generated.some((p) => p.endsWith(".github/labeler.yml")));
+  // All 4 issue templates (bug, improvement, spike, experiment) get generated.
+  const issueCount = generated.filter((p) => p.includes(".github/ISSUE_TEMPLATE/") && p.endsWith(".yml")).length;
+  assert.ok(issueCount >= 4, `expected >= 4 ISSUE_TEMPLATE files, got ${issueCount}`);
+});
+
+test("install + generate: full doctor (artifacts included) passes end-to-end", async () => {
+  const { runDoctor, discoverKnownWorkflows, formatReport } = await import("../scripts/doctor.mjs");
+  const callerTemplatesDir = join(REPO_ROOT, "templates", "caller-workflows");
+  const known = discoverKnownWorkflows(callerTemplatesDir);
+
+  const dir = mkdtempSync(join(tmpdir(), "install-full-doctor-"));
+  const plan = planInstall({ repoDir: dir });
+  applyInstall({ ops: plan.ops, installationId: "full-roundtrip" });
+  generateArtifactsForInstall({ repoDir: dir });
+
+  const result = await runDoctor({
+    repoDir: dir,
+    templateSkeletonsDir: join(REPO_ROOT, "scripts", "templates"),
+    knownWorkflows: known,
+  });
+  assert.ok(result.ok, `expected doctor to pass on a freshly installed+generated repo. Got:\n${formatReport(result)}`);
+  assert.equal(result.failures.length, 0);
 });

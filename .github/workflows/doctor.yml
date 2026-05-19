@@ -51,10 +51,17 @@ on:
         description: Full doctor result as JSON
         value: ${{ jobs.doctor.outputs.result }}
 
+# Reusable workflows inherit the caller's permissions. We declare the minimum
+# set we actually consume:
+#   - contents: read         — checkout the caller repo + pipeline-core
+#   - issues: write          — only when post-sticky=true; granted at workflow
+#                              level so the conditional sticky-tracker step
+#                              works. Callers that never set post-sticky=true
+#                              can drop `issues: write` from their caller.
+# We do NOT request pull-requests:write — the doctor never writes to PRs.
 permissions:
   contents: read
   issues: write
-  pull-requests: write
 
 jobs:
   doctor:
@@ -142,16 +149,38 @@ jobs:
             const TRACKER_MARKER = "<!-- pipeline:doctor-tracker -->";
             const { data: issues } = await github.rest.search.issuesAndPullRequests({
               q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:body "${TRACKER_MARKER}"`,
+              sort: "created",
+              order: "asc",
             });
             const now = new Date().toISOString();
             const body = `### Doctor scan ${now}\n\n\`\`\`\n${process.env.REPORT}\n\`\`\``;
             if (issues.items.length > 0) {
+              // Always append to the OLDEST tracker. If concurrent runs raced and
+              // each created a tracker, the second one will see the first's issue
+              // here and consolidate to it. We also auto-close any extra trackers
+              // that snuck in past the first.
+              const [primary, ...extras] = issues.items;
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: issues.items[0].number,
+                issue_number: primary.number,
                 body,
               });
+              for (const extra of extras) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: extra.number,
+                  state: "closed",
+                  state_reason: "not_planned",
+                });
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: extra.number,
+                  body: `Closed as duplicate of #${primary.number} (auto-deduped by pipeline-core doctor).`,
+                });
+              }
             } else if (process.env.OK !== 'true') {
               // Only open a tracker if we have something to report.
               await github.rest.issues.create({
