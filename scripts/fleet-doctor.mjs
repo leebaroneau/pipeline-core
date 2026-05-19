@@ -21,27 +21,44 @@ import { spawnSync } from "node:child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOCTOR_PATH = join(__dirname, "doctor.mjs");
 
+// Strip auth tokens out of any string that might land in logs, state, or
+// committed output. `git clone https://x-access-token:TOKEN@github.com/...`
+// puts the token in argv and in any subsequent error message — we route every
+// failure through here before storing/throwing.
+export function redactToken(s) {
+  return String(s ?? "").replace(/x-access-token:[^@\s]+@/g, "x-access-token:***@");
+}
+
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts });
   if (r.status !== 0 && !opts.allowFailure) {
-    const err = new Error(`${cmd} ${args.join(" ")} exited ${r.status}: ${r.stderr || r.stdout}`);
+    const safeArgs = args.map(redactToken).join(" ");
+    const safeStream = redactToken(r.stderr || r.stdout);
+    const err = new Error(`${cmd} ${safeArgs} exited ${r.status}: ${safeStream}`);
     err.status = r.status;
-    err.stdout = r.stdout;
-    err.stderr = r.stderr;
+    err.stdout = redactToken(r.stdout);
+    err.stderr = redactToken(r.stderr);
     throw err;
   }
   return r;
 }
 
+// Returns { repos, invalid } so callers can audit the valid rows and report
+// (rather than abort on) malformed entries. One bad row in a 30-row config
+// should never block the other 29 from being audited.
 export function loadRepos(configPath) {
   const raw = JSON.parse(readFileSync(configPath, "utf8"));
   const entries = Array.isArray(raw) ? raw : raw.repos ?? [];
+  const repos = [];
+  const invalid = [];
   for (const e of entries) {
-    if (!e.owner || !e.name) throw new Error(`config entry missing owner/name: ${JSON.stringify(e)}`);
-    e.branch ??= "main";
-    e.tier ??= 1;
+    if (!e.owner || !e.name) {
+      invalid.push({ entry: e, reason: "missing owner/name" });
+      continue;
+    }
+    repos.push({ ...e, branch: e.branch ?? "main", tier: e.tier ?? 1 });
   }
-  return entries;
+  return { repos, invalid };
 }
 
 function cloneShallow({ owner, name, branch, token, into }) {
@@ -90,9 +107,24 @@ export async function runFleetDoctor({
   if (!token) throw new Error("runFleetDoctor() needs FLEET_PAT or GITHUB_TOKEN.");
   if (!existsSync(doctorPath)) throw new Error(`doctor.mjs not found at ${doctorPath}`);
 
-  const repos = loadRepos(configPath);
+  const { repos, invalid } = loadRepos(configPath);
   const results = [];
   const startedAt = new Date().toISOString();
+
+  // Per-row validation failures land as fleet-level failures alongside the
+  // real audit output, so the operator sees both classes in the same tracker.
+  for (const bad of invalid) {
+    process.stderr.write(`[fleet-doctor] invalid config row: ${bad.reason} (${JSON.stringify(bad.entry)})\n`);
+    results.push({
+      owner: bad.entry?.owner ?? "(unknown)",
+      name: bad.entry?.name ?? "(unknown)",
+      branch: "main",
+      tier: 0,
+      result: { ok: false, failures: [{ check: "fleet-config", message: `Invalid config row: ${bad.reason}` }], warnings: [] },
+      exitCode: -1,
+      error: bad.reason,
+    });
+  }
 
   for (const entry of repos) {
     const slug = `${entry.owner}/${entry.name}`;
@@ -111,11 +143,12 @@ export async function runFleetDoctor({
       results.push({ ...entry, result, exitCode, error: null });
       process.stdout.write(result.ok ? "OK\n" : `FAIL (${result.failures?.length ?? "?"} failure(s))\n`);
     } catch (err) {
+      const safeMessage = redactToken(err.message).slice(0, 500);
       results.push({
         ...entry,
-        result: { ok: false, failures: [{ check: "fleet", message: err.message.slice(0, 500) }], warnings: [] },
+        result: { ok: false, failures: [{ check: "fleet", message: safeMessage }], warnings: [] },
         exitCode: -1,
-        error: err.message.slice(0, 500),
+        error: safeMessage,
       });
       process.stdout.write(`ERROR (${err.status ?? "?"})\n`);
     } finally {
@@ -123,21 +156,35 @@ export async function runFleetDoctor({
     }
   }
 
+  const totals = {
+    managed: results.length,
+    ok: results.filter((r) => r.result?.ok).length,
+    failing: results.filter((r) => !r.result?.ok).length,
+    warningsOnly: results.filter((r) => r.result?.ok && (r.result.warnings?.length ?? 0) > 0).length,
+  };
   const summary = {
     generatedAt: new Date().toISOString(),
     startedAt,
-    totals: {
-      managed: results.length,
-      ok: results.filter((r) => r.result?.ok).length,
-      failing: results.filter((r) => !r.result?.ok).length,
-      warningsOnly: results.filter((r) => r.result?.ok && (r.result.warnings?.length ?? 0) > 0).length,
-    },
+    totals,
     results,
   };
 
+  // Only rewrite the state file if the semantic content (everything except the
+  // run timestamps) actually changed. Otherwise the daily cron would commit a
+  // pure-timestamp diff every single day, polluting git history with no-op
+  // commits. The commit step downstream uses `git status --porcelain` to
+  // decide whether to commit, so an unchanged file = no commit.
   mkdirSync(dirname(resultsPath), { recursive: true });
-  writeFileSync(resultsPath, JSON.stringify(summary, null, 2) + "\n");
-  process.stdout.write(`\nWrote ${resultsPath}\nManaged: ${summary.totals.managed}, OK: ${summary.totals.ok}, Failing: ${summary.totals.failing}\n`);
+  const newSemantic = JSON.stringify({ totals, results });
+  let prevSemantic = null;
+  try {
+    const prev = JSON.parse(readFileSync(resultsPath, "utf8"));
+    prevSemantic = JSON.stringify({ totals: prev.totals, results: prev.results });
+  } catch { /* no prior file or unreadable — write fresh */ }
+  if (newSemantic !== prevSemantic) {
+    writeFileSync(resultsPath, JSON.stringify(summary, null, 2) + "\n");
+  }
+  process.stdout.write(`\n${newSemantic !== prevSemantic ? "Wrote" : "No change to"} ${resultsPath}\nManaged: ${totals.managed}, OK: ${totals.ok}, Failing: ${totals.failing}\n`);
   return summary;
 }
 

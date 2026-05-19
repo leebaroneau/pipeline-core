@@ -38,39 +38,46 @@ export function classifyRepo(repo, { managedKeys, skippedKeys }) {
   return "candidate";
 }
 
-async function listOwnerRepos(owner, fetch, token) {
-  // GitHub paginates at 100; loop until empty page. Try /orgs first (works for
-  // private orgs); fall back to /users for personal accounts.
-  const endpoints = [
-    `https://api.github.com/orgs/${owner}/repos?per_page=100&type=all`,
-    `https://api.github.com/users/${owner}/repos?per_page=100&type=owner`,
-  ];
-  let lastErr;
-  for (const base of endpoints) {
-    try {
-      const out = [];
-      for (let page = 1; page < 20; page++) {
-        const res = await fetch(`${base}&page=${page}`, {
-          headers: {
-            authorization: `Bearer ${token}`,
-            accept: "application/vnd.github+json",
-            "user-agent": "pipeline-core-fleet",
-          },
-        });
-        if (!res.ok) {
-          lastErr = new Error(`${res.status} from ${base}: ${(await res.text()).slice(0, 200)}`);
-          break;
-        }
-        const batch = await res.json();
-        out.push(...batch);
-        if (batch.length < 100) return out;
-      }
-      if (out.length) return out;
-    } catch (err) {
-      lastErr = err;
+async function fetchPage(base, page, fetch, token) {
+  return fetch(`${base}&page=${page}`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/vnd.github+json",
+      "user-agent": "pipeline-core-fleet",
+    },
+  });
+}
+
+async function paginate(base, fetch, token) {
+  const out = [];
+  for (let page = 1; page < 20; page++) {
+    const res = await fetchPage(base, page, fetch, token);
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 200);
+      const err = new Error(`${res.status} from ${base}: ${body}`);
+      err.status = res.status;
+      throw err;
     }
+    const batch = await res.json();
+    out.push(...batch);
+    if (batch.length < 100) return out;
   }
-  throw lastErr ?? new Error(`unable to list repos for ${owner}`);
+  return out;
+}
+
+async function listOwnerRepos(owner, fetch, token) {
+  // Try the orgs endpoint first. Only fall back to /users on a 404 — that's
+  // the legitimate "this owner is a personal account, not an org" signal.
+  // Any other status (401 auth, 403 forbidden, 429 rate-limit) is a real
+  // failure and gets surfaced verbatim, not masked by a fallback.
+  const orgsUrl = `https://api.github.com/orgs/${owner}/repos?per_page=100&type=all`;
+  try {
+    return await paginate(orgsUrl, fetch, token);
+  } catch (err) {
+    if (err.status !== 404) throw err;
+  }
+  const usersUrl = `https://api.github.com/users/${owner}/repos?per_page=100&type=owner`;
+  return paginate(usersUrl, fetch, token);
 }
 
 export async function discover({

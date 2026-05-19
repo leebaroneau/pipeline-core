@@ -30,4 +30,4 @@ gh workflow run "Fleet — doctor + discover" --repo {{OWNER}}/.github -f mode=d
 
 ## Auth
 
-The cron needs a `FLEET_PAT` secret on this repo: a Personal Access Token (Classic) with `repo`, `read:org`, and `workflow` scopes, scoped to {{OWNER}}.
+The cron needs a `FLEET_PAT` secret on this repo: a Personal Access Token (Classic) with `repo` and `read:org` scopes, scoped to {{OWNER}}.

@@ -23,7 +23,7 @@ jobs:
     permissions:
       contents: write
     with:
-      owner: REPLACE-WITH-OWNER     # e.g. Haverford-Brands  (the installer fills this in)
+      owner: {{OWNER}}              # The installer replaces this with the org name (e.g. Haverford-Brands)
       mode: ${{ inputs.mode || 'both' }}
     secrets:
       FLEET_PAT: ${{ secrets.FLEET_PAT }}

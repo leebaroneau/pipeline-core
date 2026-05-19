@@ -95,6 +95,53 @@ test("discover: empty org returns zero candidates without throwing", async () =>
   assert.equal(result.candidates.length, 0);
 });
 
+test("discover: falls back to /users only on a 404 from /orgs (personal accounts)", async () => {
+  const seen = [];
+  const fetch = async (url) => {
+    seen.push(url);
+    if (url.includes("orgs/personal")) {
+      return { ok: false, status: 404, async text() { return "Not Found"; }, async json() { return {}; } };
+    }
+    if (url.includes("users/personal")) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return [{ name: "my-thing", owner: { login: "personal" }, archived: false, fork: false, visibility: "public", language: "TS", updated_at: "2026-05-19T00:00:00Z" }];
+        },
+        async text() { return ""; },
+      };
+    }
+    return { ok: false, status: 500, async text() { return ""; }, async json() { return {}; } };
+  };
+  const configDir = setupConfigDir();
+  const result = await discover({ owner: "personal", token: "fake", configDir, fetch });
+  assert.equal(result.counts.candidates, 1);
+  assert.ok(seen.some((u) => u.includes("orgs/personal")), "should have tried /orgs first");
+  assert.ok(seen.some((u) => u.includes("users/personal")), "should have fallen back to /users");
+});
+
+test("discover: does NOT fall back on 403/429/etc — those are real failures", async () => {
+  const fetch = async (url) => {
+    if (url.includes("orgs/OrgZ")) {
+      return { ok: false, status: 403, async text() { return "rate limit / not authorized"; }, async json() { return {}; } };
+    }
+    // If we WERE to fall back, /users would return success — assertion should NOT see this path.
+    return {
+      ok: true,
+      status: 200,
+      async json() { return []; },
+      async text() { return ""; },
+    };
+  };
+  const configDir = setupConfigDir();
+  await assert.rejects(
+    () => discover({ owner: "OrgZ", token: "fake", configDir, fetch }),
+    /403/,
+    "a 403 from /orgs should surface as an error, not get masked by /users fallback",
+  );
+});
+
 test("discover: errors without owner / token / configDir", async () => {
   await assert.rejects(() => discover({ token: "x", configDir: "/tmp" }), /owner/);
   await assert.rejects(() => discover({ owner: "X", configDir: "/tmp" }), /token/);
