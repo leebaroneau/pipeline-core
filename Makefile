@@ -1,6 +1,6 @@
 .PHONY: pipeline-install pipeline-test pipeline-validate pipeline-generate \
         pipeline-lint-workflows pipeline-check-drift pipeline-check-labels \
-        pipeline-doctor pipeline-bootstrap
+        pipeline-doctor pipeline-bootstrap pipeline-generate-docs
 
 pipeline-install:
 	npm ci
@@ -15,6 +15,11 @@ pipeline-generate:
 	node scripts/generate-labels.mjs
 	node scripts/generate-labeler.mjs
 	node scripts/generate-templates.mjs
+
+# Regenerate the consumer-facing slash-command docs at docs/pipeline-core.md.
+# Run after pulling a new pipeline-core release that adds or removes commands.
+pipeline-generate-docs:
+	node scripts/generate-slash-docs.mjs "$${OUT:-docs/pipeline-core.md}"
 
 pipeline-lint-workflows:
 	node scripts/lint-workflows.mjs

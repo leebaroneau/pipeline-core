@@ -56,7 +56,10 @@ export async function runFullDriftScan({ tmpDir, octokit, owner, repo, fs }) {
   // 3. Slash-command doc check.
   const { slashCommands } = await import("./lib/slash-commands.mjs");
   const docs = {};
-  for (const p of ["README.md", "00_resources/pipeline-core/README.md"]) {
+  // docs/pipeline-core.md is what the installer drops by default; README.md
+  // is the consumer's main entry point; 00_resources/... is the legacy
+  // lee-dashboard path retained for backwards compatibility.
+  for (const p of ["README.md", "docs/pipeline-core.md", "00_resources/pipeline-core/README.md"]) {
     try { docs[p] = fs.readFileSync(p, "utf8"); } catch { /* skip */ }
   }
   const slashDocs = checkSlashCommandDocs({ commands: slashCommands, docs });

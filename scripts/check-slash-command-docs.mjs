@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 
 const DEFAULT_DOC_PATHS = [
   "README.md",
-  "00_resources/pipeline-core/README.md",
+  "docs/pipeline-core.md",            // Consumer-friendly: dropped by the installer and re-generated via `make pipeline-generate-docs`.
+  "00_resources/pipeline-core/README.md",  // Legacy lee-dashboard path; kept for backwards compat.
 ];
 
 export function checkSlashCommandDocs({ commands, docs }) {

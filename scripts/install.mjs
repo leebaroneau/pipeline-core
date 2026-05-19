@@ -25,6 +25,7 @@ import { loadConfig } from "./lib/config.mjs";
 import { buildLabelsYaml } from "./generate-labels.mjs";
 import { buildLabelerYaml } from "./generate-labeler.mjs";
 import { buildTemplate } from "./generate-templates.mjs";
+import { buildSlashDocs } from "./generate-slash-docs.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PIPELINE_CORE_ROOT = join(__dirname, "..");
@@ -150,6 +151,16 @@ export function generateArtifactsForInstall({ repoDir, configPath = ".github/pip
     writeFileSync(dest, buildTemplate(skeleton, cfg));
     written.push(dest);
   }
+
+  // docs/pipeline-core.md — required so `pipeline-drift-scan` can find the
+  // slash-command documentation. Without this, every fresh install fails the
+  // drift-scan with "Slash command /X is enabled but undocumented" (the
+  // friction caught by the v1.0.8 sandbox install).
+  mkdirSync(join(repoDir, "docs"), { recursive: true });
+  const slashDocsPath = join(repoDir, "docs", "pipeline-core.md");
+  writeFileSync(slashDocsPath, buildSlashDocs());
+  written.push(slashDocsPath);
+
   return written;
 }
 
