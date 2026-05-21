@@ -3,6 +3,13 @@ name: Pipeline — workflow-lint
 on:
   workflow_call:
     inputs:
+      runner:
+        description: >
+          JSON array of GitHub Actions runner labels. Defaults to the retainer's
+          self-hosted pool. Override with '["ubuntu-latest"]' to force GitHub-hosted.
+        type: string
+        required: false
+        default: '["self-hosted", "retainer"]'
       config-path:
         type: string
         required: false
@@ -14,7 +21,7 @@ permissions:
 
 jobs:
   workflow-lint:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runner) }}
     steps:
       - name: Checkout caller repo
         uses: actions/checkout@v5

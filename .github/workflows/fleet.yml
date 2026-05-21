@@ -21,6 +21,13 @@ name: Fleet — doctor + discover
 on:
   workflow_call:
     inputs:
+      runner:
+        description: >
+          JSON array of GitHub Actions runner labels. Defaults to the retainer's
+          self-hosted pool. Override with '["ubuntu-latest"]' to force GitHub-hosted.
+        type: string
+        required: false
+        default: '["self-hosted", "retainer"]'
       owner:
         type: string
         required: true
@@ -58,7 +65,7 @@ concurrency:
 
 jobs:
   fleet:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runner) }}
     timeout-minutes: 45
     steps:
       - name: Checkout caller (fleet manager) repo
