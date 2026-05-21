@@ -7,8 +7,6 @@
 name: Fleet — doctor + discover
 
 on:
-  schedule:
-    - cron: "0 9 * * *"  # daily 09:00 UTC
   workflow_dispatch:
     inputs:
       mode:

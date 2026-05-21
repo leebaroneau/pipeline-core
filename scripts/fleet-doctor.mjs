@@ -21,12 +21,23 @@ import { spawnSync } from "node:child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOCTOR_PATH = join(__dirname, "doctor.mjs");
 
+const GIT_ASKPASS_PATH = join(__dirname, "lib", "git-askpass.mjs");
+
 // Strip auth tokens out of any string that might land in logs, state, or
-// committed output. `git clone https://x-access-token:TOKEN@github.com/...`
-// puts the token in argv and in any subsequent error message — we route every
-// failure through here before storing/throwing.
+// committed output. Older clone code used authenticated URLs; keep this
+// sanitizer for historical errors and defensive handling.
 export function redactToken(s) {
   return String(s ?? "").replace(/x-access-token:[^@\s]+@/g, "x-access-token:***@");
+}
+
+function authenticatedGitEnv(token) {
+  return {
+    ...process.env,
+    GIT_ASKPASS: GIT_ASKPASS_PATH,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_AUTH_USERNAME: "x-access-token",
+    GIT_AUTH_TOKEN: token,
+  };
 }
 
 function run(cmd, args, opts = {}) {
@@ -61,9 +72,10 @@ export function loadRepos(configPath) {
   return { repos, invalid };
 }
 
-function cloneShallow({ owner, name, branch, token, into }) {
-  const url = `https://x-access-token:${token}@github.com/${owner}/${name}.git`;
-  run("git", [
+export function cloneShallow({ owner, name, branch, token, into, runCommand = run }) {
+  const url = `https://github.com/${owner}/${name}.git`;
+  const env = authenticatedGitEnv(token);
+  runCommand("git", [
     "clone",
     "--depth", "1",
     "--single-branch",
@@ -72,8 +84,8 @@ function cloneShallow({ owner, name, branch, token, into }) {
     "--sparse",
     url,
     into,
-  ]);
-  run("git", ["-C", into, "sparse-checkout", "set", ".github", "docs"]);
+  ], { env });
+  runCommand("git", ["-C", into, "sparse-checkout", "set", ".github", "docs"], { env });
 }
 
 function runDoctorOn({ repoDir, owner, name, branch, token, doctorPath }) {
