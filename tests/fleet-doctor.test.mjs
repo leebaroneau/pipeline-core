@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -67,4 +67,48 @@ test("redactToken: passes through strings with no token URL", () => {
   assert.equal(redactToken("plain text"), "plain text");
   assert.equal(redactToken(""), "");
   assert.equal(redactToken(null), "");
+});
+
+test("cloneShallow does not build token-bearing git clone argv", () => {
+  const source = readFileSync(new URL("../scripts/fleet-doctor.mjs", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /x-access-token:\$\{token\}@/);
+  assert.doesNotMatch(source, /git clone https:\/\/x-access-token:/);
+});
+
+test("cloneShallow passes private repo credentials through askpass env for remote-touching git commands", async () => {
+  const { cloneShallow } = await import("../scripts/fleet-doctor.mjs");
+  const calls = [];
+
+  cloneShallow({
+    owner: "Haverford-Brands",
+    name: "private-repo",
+    branch: "main",
+    token: "fleet-secret",
+    into: "/tmp/private-repo",
+    runCommand: (cmd, args, opts) => {
+      calls.push({ cmd, args, env: opts?.env });
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+
+  const remoteTouchingGitCalls = calls.filter((call) => (
+    call.cmd === "git"
+    && (
+      call.args[0] === "clone"
+      || call.args.includes("sparse-checkout")
+    )
+  ));
+  assert.equal(remoteTouchingGitCalls.length, 2);
+
+  for (const call of remoteTouchingGitCalls) {
+    const argv = call.args.join(" ");
+    assert.ok(!argv.includes("fleet-secret"), `git argv leaked token: ${argv}`);
+    assert.doesNotMatch(argv, /x-access-token:/);
+    assert.equal(call.env.GIT_TERMINAL_PROMPT, "0");
+    assert.equal(call.env.GIT_AUTH_USERNAME, "x-access-token");
+    assert.equal(call.env.GIT_AUTH_TOKEN, "fleet-secret");
+    assert.ok(call.env.GIT_ASKPASS);
+  }
+  assert.ok(remoteTouchingGitCalls[0].args.includes("https://github.com/Haverford-Brands/private-repo.git"));
 });
