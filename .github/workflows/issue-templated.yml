@@ -32,7 +32,7 @@ jobs:
             const body = context.payload.issue.body || '';
             const title = context.payload.issue.title || '';
 
-            const KNOWN_PREFIXES = ['[Improvement]:', '[Bug]:', '[Spike]:', '[Experiment]:'];
+            const KNOWN_PREFIXES = ['[Improvement]:', '[Bug]:', '[Spike]:', '[Experiment]:', 'Task:'];
             const titleHasPrefix = KNOWN_PREFIXES.some(p => title.startsWith(p));
 
             const KNOWN_HEADERS = ['### Hypothesis', '### Expected Behavior', '### Question', '### Success Metric', '### Out of Scope'];
