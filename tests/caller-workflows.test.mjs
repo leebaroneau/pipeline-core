@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const CALLER_WORKFLOWS_DIR = "templates/caller-workflows";
+const CALLER_WORKFLOWS_DIR = "templates/pipeline-consumer-shim";
 
 function callerWorkflowFiles() {
   return readdirSync(CALLER_WORKFLOWS_DIR)

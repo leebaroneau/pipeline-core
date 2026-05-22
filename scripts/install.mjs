@@ -29,7 +29,7 @@ import { buildSlashDocs } from "./generate-slash-docs.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PIPELINE_CORE_ROOT = join(__dirname, "..");
-const CALLER_TEMPLATES_DIR = join(PIPELINE_CORE_ROOT, "templates", "caller-workflows");
+const CALLER_TEMPLATES_DIR = join(PIPELINE_CORE_ROOT, "templates", "pipeline-consumer-shim");
 const ISSUE_TEMPLATE_DIR = join(PIPELINE_CORE_ROOT, "templates", "ISSUE_TEMPLATE");
 const SKELETON_DIR = join(__dirname, "templates");
 const CONFIG_EXAMPLE = join(PIPELINE_CORE_ROOT, "templates", "pipeline-config.yml.example");

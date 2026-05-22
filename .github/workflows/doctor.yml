@@ -113,7 +113,7 @@ jobs:
             );
             const path = require("node:path");
             const known = discoverKnownWorkflows(
-              path.join(process.env.GITHUB_WORKSPACE, ".pipeline-core/templates/caller-workflows"),
+              path.join(process.env.GITHUB_WORKSPACE, ".pipeline-core/templates/pipeline-consumer-shim"),
             );
             const skeletonsDir = path.join(
               process.env.GITHUB_WORKSPACE,
