@@ -23,7 +23,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const EXAMPLE_CONFIG = join(REPO_ROOT, "templates", "pipeline-config.yml.example");
 const SKELETON_DIR = join(REPO_ROOT, "scripts", "templates");
-const CALLER_TEMPLATES_DIR = join(REPO_ROOT, "templates", "caller-workflows");
+const CALLER_TEMPLATES_DIR = join(REPO_ROOT, "templates", "pipeline-consumer-shim");
 const KNOWN_WORKFLOWS = discoverKnownWorkflows(CALLER_TEMPLATES_DIR);
 
 // Build a complete, valid consumer repo on disk. Returns the path.
@@ -202,7 +202,7 @@ test("checkCallerWorkflows: no pipeline-*.yml files at all → failure with copy
   mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
   const result = checkCallerWorkflows({ repoDir: dir, knownWorkflows: KNOWN_WORKFLOWS });
   assert.equal(result.ok, false);
-  assert.match(result.failures[0].remediation, /templates\/caller-workflows/);
+  assert.match(result.failures[0].remediation, /templates\/pipeline-consumer-shim/);
 });
 
 // ─── checkBranchProtection ──────────────────────────────────────────────────

@@ -145,7 +145,7 @@ test("applyInstall: produces a config that the validator accepts (end-to-end smo
 
 test("applyInstall: a freshly installed repo passes the doctor's config + callers checks", async () => {
   const { checkConfig, checkCallerWorkflows, discoverKnownWorkflows } = await import("../scripts/doctor.mjs");
-  const callerTemplatesDir = join(REPO_ROOT, "templates", "caller-workflows");
+  const callerTemplatesDir = join(REPO_ROOT, "templates", "pipeline-consumer-shim");
   const known = discoverKnownWorkflows(callerTemplatesDir);
 
   const dir = mkdtempSync(join(tmpdir(), "install-doctor-roundtrip-"));
@@ -199,7 +199,7 @@ test("install pipeline + drift-scan slash-doc check: passes end-to-end on a fres
 
 test("install + generate: full doctor (artifacts included) passes end-to-end", async () => {
   const { runDoctor, discoverKnownWorkflows, formatReport } = await import("../scripts/doctor.mjs");
-  const callerTemplatesDir = join(REPO_ROOT, "templates", "caller-workflows");
+  const callerTemplatesDir = join(REPO_ROOT, "templates", "pipeline-consumer-shim");
   const known = discoverKnownWorkflows(callerTemplatesDir);
 
   const dir = mkdtempSync(join(tmpdir(), "install-full-doctor-"));

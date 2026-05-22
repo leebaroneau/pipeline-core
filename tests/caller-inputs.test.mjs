@@ -1,5 +1,5 @@
 // Cross-reference test: for every caller template under
-// `templates/caller-workflows/`, every `with:` key it passes to a
+// `templates/pipeline-consumer-shim/`, every `with:` key it passes to a
 // `uses:` target must be a declared `inputs:` on the target reusable
 // workflow. GitHub Actions fails any caller that passes an unknown
 // input with `startup_failure`, so this is a hard correctness check.
@@ -19,7 +19,7 @@ import { parseWorkflowFile } from "../scripts/lib/workflow-yaml.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
-const CALLERS_DIR = join(REPO_ROOT, "templates", "caller-workflows");
+const CALLERS_DIR = join(REPO_ROOT, "templates", "pipeline-consumer-shim");
 const SUPPLIER_DIR = join(REPO_ROOT, ".github", "workflows");
 
 function declaredInputs(supplierPath) {

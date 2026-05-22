@@ -201,7 +201,7 @@ export function checkCallerWorkflows({
         {
           check: "callers",
           message: `${workflowsDir} does not exist`,
-          remediation: `Copy caller workflows from templates/caller-workflows/ in pipeline-core into ${workflowsDir}/.`,
+          remediation: `Copy caller workflows from templates/pipeline-consumer-shim/ in pipeline-core into ${workflowsDir}/.`,
         },
       ],
     };
@@ -217,7 +217,7 @@ export function checkCallerWorkflows({
         {
           check: "callers",
           message: `No pipeline-*.yml caller workflows found in ${workflowsDir}/`,
-          remediation: `Copy caller workflows from templates/caller-workflows/ in pipeline-core into ${workflowsDir}/.`,
+          remediation: `Copy caller workflows from templates/pipeline-consumer-shim/ in pipeline-core into ${workflowsDir}/.`,
         },
       ],
     };
@@ -231,7 +231,7 @@ export function checkCallerWorkflows({
     warnings.push({
       check: "callers",
       message: "Reusable-workflow filename validation skipped: caller did not provide the known-workflows set",
-      remediation: "Run the doctor from a checkout of pipeline-core so it can compare consumer caller targets to templates/caller-workflows/.",
+      remediation: "Run the doctor from a checkout of pipeline-core so it can compare consumer caller targets to templates/pipeline-consumer-shim/.",
     });
   }
 
@@ -285,7 +285,7 @@ export function checkCallerWorkflows({
           failures.push({
             check: "callers",
             message: `${workflowsDir}/${file} references \`${targetName}\` which is not a known reusable workflow in ${upstream}`,
-            remediation: `Fix the typo, or copy a caller from \`templates/caller-workflows/\` that targets a real workflow.`,
+            remediation: `Fix the typo, or copy a caller from \`templates/pipeline-consumer-shim/\` that targets a real workflow.`,
           });
         }
       }
@@ -441,7 +441,7 @@ export async function runDoctor(opts) {
 }
 
 // Discover the set of valid reusable-workflow filenames by parsing each caller
-// template under `templates/caller-workflows/` and extracting the workflow file
+// template under `templates/pipeline-consumer-shim/` and extracting the workflow file
 // each one `uses:`. This is the source of truth shipped with pipeline-core.
 export function discoverKnownWorkflows(callerTemplatesDir) {
   if (!existsSync(callerTemplatesDir)) return null;
@@ -592,7 +592,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
   const scriptDir = new URL(".", import.meta.url).pathname;
   const skeletonsDir = args.templateSkeletonsDir ?? join(scriptDir, "templates");
   // Default known-workflows source: pipeline-core's caller templates.
-  const callerTemplatesDir = join(scriptDir, "..", "templates", "caller-workflows");
+  const callerTemplatesDir = join(scriptDir, "..", "templates", "pipeline-consumer-shim");
   const knownWorkflows = discoverKnownWorkflows(callerTemplatesDir);
 
   const octokit = await makeOctokitFromEnv(args.owner, args.repo);
