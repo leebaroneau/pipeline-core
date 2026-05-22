@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   deriveInstallationId,
   renderStarterConfig,
+  upsertAgentInstructions,
   planInstall,
   applyInstall,
   generateArtifactsForInstall,
@@ -81,9 +82,38 @@ test("renderStarterConfig: leaves cron_timezone alone when not provided", () => 
   assert.match(out, /cron_timezone:\s*America\/New_York/);
 });
 
+// ─── upsertAgentInstructions ────────────────────────────────────────────────
+
+test("upsertAgentInstructions: appends the marked Pipeline Core block to existing AGENTS.md", () => {
+  const existing = "# Repo Instructions\n\nKeep local repo guidance.\n";
+  const block = "<!-- pipeline-core-agent-instructions:start -->\n## Pipeline Core Repo Ownership\n\nOwner repo only.\n<!-- pipeline-core-agent-instructions:end -->\n";
+  const out = upsertAgentInstructions({ existingText: existing, blockText: block });
+
+  assert.match(out, /Keep local repo guidance\./);
+  assert.match(out, /## Pipeline Core Repo Ownership/);
+  assert.match(out, /pipeline-core-agent-instructions:start/);
+});
+
+test("upsertAgentInstructions: replaces an existing marked block instead of duplicating it", () => {
+  const existing = [
+    "# Repo Instructions",
+    "",
+    "<!-- pipeline-core-agent-instructions:start -->",
+    "old text",
+    "<!-- pipeline-core-agent-instructions:end -->",
+    "",
+  ].join("\n");
+  const block = "<!-- pipeline-core-agent-instructions:start -->\nnew text\n<!-- pipeline-core-agent-instructions:end -->\n";
+  const out = upsertAgentInstructions({ existingText: existing, blockText: block });
+
+  assert.doesNotMatch(out, /old text/);
+  assert.match(out, /new text/);
+  assert.equal(out.match(/pipeline-core-agent-instructions:start/g).length, 1);
+});
+
 // ─── planInstall ────────────────────────────────────────────────────────────
 
-test("planInstall: clean repo → ops list covers config, all callers, and ISSUE_TEMPLATE/config.yml", () => {
+test("planInstall: clean repo → ops list covers config, all callers, ISSUE_TEMPLATE/config.yml, and AGENTS.md", () => {
   const dir = mkdtempSync(join(tmpdir(), "install-clean-"));
   const plan = planInstall({ repoDir: dir });
   assert.ok(plan.ok, JSON.stringify(plan));
@@ -91,6 +121,7 @@ test("planInstall: clean repo → ops list covers config, all callers, and ISSUE
   const kinds = plan.ops.map((o) => o.kind);
   assert.ok(kinds.includes("config"), "expected a config op");
   assert.ok(kinds.includes("issue-config"), "expected an issue-config op");
+  assert.ok(kinds.includes("agent-instructions"), "expected an agent-instructions op");
   const callerCount = kinds.filter((k) => k === "caller").length;
   assert.ok(callerCount >= 10, `expected many caller workflows, got ${callerCount}`);
 });
@@ -128,6 +159,20 @@ test("applyInstall: writes all files and renders installation_id into the config
 
   assert.ok(existsSync(join(dir, ".github", "workflows", "pipeline-merge-gate.yml")));
   assert.ok(existsSync(join(dir, ".github", "ISSUE_TEMPLATE", "config.yml")));
+  assert.match(readFileSync(join(dir, "AGENTS.md"), "utf8"), /Pipeline Core Repo Ownership/);
+});
+
+test("applyInstall: preserves existing AGENTS.md while adding Pipeline Core repo ownership instructions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "install-existing-agents-"));
+  writeFileSync(join(dir, "AGENTS.md"), "# Existing\n\nKeep this repo guidance.\n");
+  const plan = planInstall({ repoDir: dir });
+  assert.ok(plan.ok);
+
+  applyInstall({ ops: plan.ops, installationId: "demo-app" });
+  const agents = readFileSync(join(dir, "AGENTS.md"), "utf8");
+  assert.match(agents, /Keep this repo guidance\./);
+  assert.match(agents, /Pipeline Core Repo Ownership/);
+  assert.equal(agents.match(/pipeline-core-agent-instructions:start/g).length, 1);
 });
 
 test("applyInstall: produces a config that the validator accepts (end-to-end smoke)", async () => {

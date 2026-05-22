@@ -33,6 +33,9 @@ const CALLER_TEMPLATES_DIR = join(PIPELINE_CORE_ROOT, "templates", "pipeline-con
 const ISSUE_TEMPLATE_DIR = join(PIPELINE_CORE_ROOT, "templates", "ISSUE_TEMPLATE");
 const SKELETON_DIR = join(__dirname, "templates");
 const CONFIG_EXAMPLE = join(PIPELINE_CORE_ROOT, "templates", "pipeline-config.yml.example");
+const AGENT_INSTRUCTIONS_TEMPLATE = join(PIPELINE_CORE_ROOT, "templates", "pipeline-agent-instructions.md");
+const AGENT_INSTRUCTIONS_START = "<!-- pipeline-core-agent-instructions:start -->";
+const AGENT_INSTRUCTIONS_END = "<!-- pipeline-core-agent-instructions:end -->";
 
 // ─── Pure logic (testable without filesystem side effects on real repos) ────
 
@@ -73,6 +76,21 @@ export function deriveInstallationId(repoPath) {
   return raw;
 }
 
+export function upsertAgentInstructions({ existingText = "", blockText }) {
+  const block = String(blockText ?? "").trimEnd() + "\n";
+  const existing = String(existingText ?? "").trimEnd();
+  const start = existing.indexOf(AGENT_INSTRUCTIONS_START);
+  const end = existing.indexOf(AGENT_INSTRUCTIONS_END);
+
+  if (start !== -1 && end !== -1 && end > start) {
+    const before = existing.slice(0, start).trimEnd();
+    const after = existing.slice(end + AGENT_INSTRUCTIONS_END.length).trimStart();
+    return [before, block.trimEnd(), after].filter(Boolean).join("\n\n") + "\n";
+  }
+
+  return [existing, block.trimEnd()].filter(Boolean).join("\n\n") + "\n";
+}
+
 export function planInstall({ repoDir, callerTemplatesDir = CALLER_TEMPLATES_DIR, issueTemplateDir = ISSUE_TEMPLATE_DIR }) {
   // Returns the list of {src, dest, kind} the installer will create. Doesn't
   // touch disk. Refuses (returns { conflict: ... }) if any file already exists,
@@ -106,6 +124,15 @@ export function planInstall({ repoDir, callerTemplatesDir = CALLER_TEMPLATES_DIR
     ops.push({ src: issueConfigSrc, dest, kind: "issue-config" });
   }
 
+  if (existsSync(AGENT_INSTRUCTIONS_TEMPLATE)) {
+    ops.push({
+      src: AGENT_INSTRUCTIONS_TEMPLATE,
+      dest: join(repoDir, "AGENTS.md"),
+      kind: "agent-instructions",
+      upsert: true,
+    });
+  }
+
   return { ok: true, ops };
 }
 
@@ -118,6 +145,10 @@ export function applyInstall({ ops, installationId, cronTimezone }) {
     if (op.render) {
       const exampleText = readFileSync(op.src, "utf8");
       writeFileSync(op.dest, renderStarterConfig({ exampleText, installationId, cronTimezone }));
+    } else if (op.upsert) {
+      const existingText = existsSync(op.dest) ? readFileSync(op.dest, "utf8") : "";
+      const blockText = readFileSync(op.src, "utf8");
+      writeFileSync(op.dest, upsertAgentInstructions({ existingText, blockText }));
     } else {
       copyFileSync(op.src, op.dest);
     }
