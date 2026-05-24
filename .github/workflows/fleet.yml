@@ -15,6 +15,7 @@
 #   state-dir          where to write results + discovery state (default: "state")
 #   readme-path        which README to splice the tracker section into (default: "README.md")
 #   commit-changes     "true"/"false" — commit state + README updates back (default: "true")
+#   fail-on-candidates "true"/"false" — fail after committing state when discovery finds unmanaged active repos (default: "true")
 
 name: Fleet — doctor + discover
 
@@ -48,6 +49,10 @@ on:
         required: false
         default: README.md
       commit-changes:
+        type: string
+        required: false
+        default: "true"
+      fail-on-candidates:
         type: string
         required: false
         default: "true"
@@ -128,3 +133,9 @@ jobs:
           git diff --staged --quiet && { echo "no staged changes after add"; exit 0; }
           git commit -m "chore(fleet): doctor sweep $(date -u +%Y-%m-%dT%H:%MZ) for ${{ inputs.owner }}"
           git push
+
+      - name: Enforce no unmanaged active repos
+        if: inputs.fail-on-candidates == 'true' && (inputs.mode == 'discover' || inputs.mode == 'both')
+        env:
+          DISCOVERY_PATH: ${{ inputs.state-dir }}/discovery.json
+        run: node .pipeline-core/scripts/check-discovery-candidates.mjs
