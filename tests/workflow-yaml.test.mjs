@@ -25,3 +25,14 @@ test("issue-templated guard accepts Task issue titles", () => {
   const prefixList = workflow.match(/const KNOWN_PREFIXES = \[(.+)\];/)?.[1] ?? "";
   assert.match(prefixList, /'Task:'/);
 });
+
+test("fleet workflow fails on unmanaged candidates after committing state", () => {
+  const workflow = readFileSync(join(ROOT, ".github/workflows/fleet.yml"), "utf8");
+  const commitStep = workflow.indexOf("Commit state + README updates");
+  const candidateGate = workflow.indexOf("Enforce no unmanaged active repos");
+
+  assert.match(workflow, /fail-on-candidates/);
+  assert.ok(commitStep > 0, "expected fleet workflow to commit state");
+  assert.ok(candidateGate > commitStep, "candidate gate should run after state has been committed");
+  assert.match(workflow, /check-discovery-candidates\.mjs/);
+});

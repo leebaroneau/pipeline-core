@@ -32,6 +32,7 @@ make pipeline-doctor REPO=/path/to/your/repo
 - **Slash commands** — `/ready`, `/grab`, `/release`, `/iterate`, `/refuted`, `/duplicate`, `/wontfix`, `/cnr`, `/block`, `/unblock`, `/park`, `/unpark`, `/reopen`, `/needs-info`, `/info-resolved`
 - **Self-maintenance** — workflow-lint and drift-scan keep generated artifacts in sync
 - **Install doctor** — `make pipeline-doctor` (or `node scripts/doctor.mjs --repo /path/to/consumer`) does a non-mutating setup-health check on a consumer repo: config validation, artifact drift, caller upstream/major pin, and (with `GITHUB_TOKEN`) branch-protection enforcement
+- **Fleet governance** — org fleet sweeps discover unmanaged active repos and, by default, fail after committing state when any non-archived, non-fork repo is neither managed nor explicitly skipped
 
 ## Versioning
 
