@@ -1,4 +1,4 @@
-name: Pipeline — auto-close non-template issues
+name: Pipeline — issue-template compatibility
 
 on:
   workflow_call:
@@ -16,48 +16,16 @@ on:
         default: .github/pipeline-config.yml
 
 permissions:
-  issues: write
+  issues: read
 
 jobs:
-  check-template:
+  issue-template-compatibility:
     runs-on: ${{ fromJSON(inputs.runner) }}
     if: ${{ !contains(github.event.issue.user.type, 'Bot') }}
     steps:
-      - name: Close if missing one of the known template signatures
-        uses: actions/github-script@v8
+      - name: Leave issue open
         env:
           CONFIG_PATH: ${{ inputs.config-path }}
-        with:
-          script: |
-            const body = context.payload.issue.body || '';
-            const title = context.payload.issue.title || '';
-
-            const KNOWN_PREFIXES = ['[Improvement]:', '[Bug]:', '[Spike]:', '[Experiment]:', 'Task:'];
-            const titleHasPrefix = KNOWN_PREFIXES.some(p => title.startsWith(p));
-
-            const KNOWN_HEADERS = ['### Hypothesis', '### Expected Behavior', '### Question', '### Success Metric', '### Out of Scope'];
-            const bodyHasHeader = KNOWN_HEADERS.some(h => body.includes(h));
-
-            if (titleHasPrefix || bodyHasHeader) {
-              return;
-            }
-
-            const issue_number = context.payload.issue.number;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-              body: [
-                "This issue does not appear to use one of the four templates (Improvement / Bug / Spike / Experiment).",
-                "",
-                "Auto-closing. Please reopen with a template via the [issue templates](../issues/new/choose).",
-              ].join('\n'),
-            });
-
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-              state: 'closed',
-              state_reason: 'not_planned',
-            });
+        run: |
+          echo "Issue template auto-close is retired; leaving issue open."
+          echo "Config path: ${CONFIG_PATH}"

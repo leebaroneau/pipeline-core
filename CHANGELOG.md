@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fleet discovery can now hard-fail on unmanaged active repositories after writing and committing discovery state. The reusable `fleet.yml` workflow gets a `fail-on-candidates` input, defaulting to `true`, and runs `scripts/check-discovery-candidates.mjs` after the state commit so every non-archived, non-fork repo must either install Pipeline Core or have an explicit skip reason. (#37)
 
+### Changed
+
+- Retired the destructive issue-template auto-close guard. The reusable `issue-templated.yml` workflow now leaves non-template issues open as a compatibility no-op, and generated consumer callers only request `issues: read`. (#40)
+
 ## [v1.0.11] — 2026-05-20
 
 ### Fixed

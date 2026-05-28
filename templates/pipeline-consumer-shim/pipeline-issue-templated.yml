@@ -9,6 +9,6 @@ jobs:
   issue-templated:
     uses: leebaroneau/pipeline-core/.github/workflows/issue-templated.yml@v1
     permissions:
-      issues: write
+      issues: read
     with:
       config-path: .github/pipeline-config.yml
