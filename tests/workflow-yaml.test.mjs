@@ -20,10 +20,26 @@ test("parseWorkflowFile throws on missing file", () => {
   );
 });
 
-test("issue-templated guard accepts Task issue titles", () => {
+test("issue-templated workflow is retained as a compatibility no-op", () => {
   const workflow = readFileSync(join(ROOT, ".github/workflows/issue-templated.yml"), "utf8");
-  const prefixList = workflow.match(/const KNOWN_PREFIXES = \[(.+)\];/)?.[1] ?? "";
-  assert.match(prefixList, /'Task:'/);
+
+  assert.match(workflow, /issue-template compatibility/);
+  assert.match(workflow, /Issue template auto-close is retired/);
+});
+
+test("issue-templated workflow does not close non-template issues", () => {
+  const workflow = readFileSync(join(ROOT, ".github/workflows/issue-templated.yml"), "utf8");
+
+  assert.doesNotMatch(workflow, /github\.rest\.issues\.update[\s\S]*state:\s*['"]closed['"]/);
+  assert.doesNotMatch(workflow, /state_reason:\s*['"]not_planned['"]/);
+  assert.doesNotMatch(workflow, /Auto-closing/);
+});
+
+test("issue-templated caller only requests read permission", () => {
+  const workflow = readFileSync(join(ROOT, "templates/pipeline-consumer-shim/pipeline-issue-templated.yml"), "utf8");
+
+  assert.match(workflow, /issues:\s*read/);
+  assert.doesNotMatch(workflow, /issues:\s*write/);
 });
 
 test("fleet workflow fails on unmanaged candidates after committing state", () => {
