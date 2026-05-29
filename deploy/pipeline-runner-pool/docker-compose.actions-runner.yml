@@ -1,0 +1,75 @@
+# docker-compose.actions-runner.yml
+#
+# Self-hosted GitHub Actions runner pool for a retainer org, deployed via Coolify
+# (Build Pack: Docker Compose; Base Directory: /deploy/pipeline-runner-pool).
+# Two ephemeral runner slots: each container registers with the org on startup,
+# runs exactly one job, exits, then auto-restarts clean. The Coolify app is named
+# pipeline-<brand>-runner-pool; one app per org, all pointing at this same repo +
+# base dir, differing only by RUNNER_OWNER / APP_LOGIN + labels.
+#
+# Registration auth is the org-owned GitHub App "pipeline-bot" (NOT a personal PAT).
+# myoung34/github-runner derives a short-lived org registration token from the App
+# credentials at boot, so ACCESS_TOKEN / RUNNER_TOKEN must NOT be set — they conflict
+# with the App-auth flow.
+#
+# REQUIRED Coolify app vars (set these in the Coolify UI, runtime-injected — every
+# value below appears as a ${VAR} token so Coolify auto-detects, seeds, and gates it):
+#   APP_ID            pipeline-bot numeric App ID.
+#   APP_PRIVATE_KEY   pipeline-bot private key, FULL PEM contents (not a path).
+#                     Tick Multiline + Literal so newlines and `$` survive intact.
+#   APP_LOGIN         The org login the App is installed on (= the org in RUNNER_OWNER).
+#   RUNNER_OWNER      The retainer org name (e.g. Haverford-Brands). Becomes ORG_NAME.
+#
+#   RUNNER_LABELS     Comma-separated runner labels — REQUIRED. Set to
+#                     `self-hosted,linux,retainer` (the pool default) or append the
+#                     brand, e.g. `self-hosted,linux,retainer,haverford`. The pipeline
+#                     workflows target `runs-on: [self-hosted, retainer]`, so an empty
+#                     label set leaves those jobs queued forever — hence required, not
+#                     optional. Gated with `:?`; we never use `${VAR:-default}` (Coolify's
+#                     parser has bugs mangling the `:-` fallback form).
+#
+# App permission required on pipeline-bot: Self-hosted runners → Read and write
+# (org permission organization_self_hosted_runners:write). If the registration-token
+# endpoint 403s on some org config, also grant Administration: Read and write.
+#
+# See README.md in this folder for the Coolify settings table, verify/scale/rotate/
+# decommission runbook, and failure handling.
+
+services:
+  runner-1:
+    build:
+      context: .
+      dockerfile: runner.Dockerfile
+    environment:
+      # GitHub App auth — replaces ACCESS_TOKEN. Required vars use the `:?` form so a
+      # deploy fails fast (rather than launching a broken container) if Coolify has not
+      # injected them. `:?` is required-gating only; it does NOT seed a value and does
+      # NOT override Coolify's runtime injection.
+      APP_ID: ${APP_ID:?APP_ID is required (pipeline-bot App ID)}
+      APP_PRIVATE_KEY: ${APP_PRIVATE_KEY:?APP_PRIVATE_KEY is required (pipeline-bot PEM, set Multiline+Literal in Coolify)}
+      APP_LOGIN: ${APP_LOGIN:?APP_LOGIN is required (org the App is installed on)}
+      RUNNER_SCOPE: org
+      ORG_NAME: ${RUNNER_OWNER:?RUNNER_OWNER is required (retainer org name)}
+      RUNNER_NAME: ${RUNNER_OWNER}-runner-1
+      # Required: empty labels leave `runs-on: [self-hosted, retainer]` jobs queued
+      # forever. `:?` gates it; never use `${VAR:-default}` (Coolify parser bug).
+      LABELS: ${RUNNER_LABELS:?RUNNER_LABELS is required, e.g. self-hosted,linux,retainer}
+      EPHEMERAL: "true"
+      DISABLE_AUTO_UPDATE: "false"
+    restart: unless-stopped
+
+  runner-2:
+    build:
+      context: .
+      dockerfile: runner.Dockerfile
+    environment:
+      APP_ID: ${APP_ID:?APP_ID is required (pipeline-bot App ID)}
+      APP_PRIVATE_KEY: ${APP_PRIVATE_KEY:?APP_PRIVATE_KEY is required (pipeline-bot PEM, set Multiline+Literal in Coolify)}
+      APP_LOGIN: ${APP_LOGIN:?APP_LOGIN is required (org the App is installed on)}
+      RUNNER_SCOPE: org
+      ORG_NAME: ${RUNNER_OWNER:?RUNNER_OWNER is required (retainer org name)}
+      RUNNER_NAME: ${RUNNER_OWNER}-runner-2
+      LABELS: ${RUNNER_LABELS:?RUNNER_LABELS is required, e.g. self-hosted,linux,retainer}
+      EPHEMERAL: "true"
+      DISABLE_AUTO_UPDATE: "false"
+    restart: unless-stopped
