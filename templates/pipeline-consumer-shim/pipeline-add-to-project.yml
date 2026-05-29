@@ -16,5 +16,12 @@ jobs:
       # org → every repo distributes its issues to that org's roadmap. A repo can
       # override by setting org_project.url in its own pipeline-config.yml.
       project-url-default: ${{ vars.ADD_TO_PROJECT_URL }}
+      # Org-owned GitHub App (preferred over the PAT). Set the PIPELINE_BOT_APP_ID org
+      # variable + PIPELINE_BOT_PRIVATE_KEY org secret once per org → a short-lived App
+      # token is minted at runtime and the personal PAT is no longer needed.
+      app-id: ${{ vars.PIPELINE_BOT_APP_ID }}
     secrets:
+      # Fallback while the App is being rolled out. Retire ADD_TO_PROJECT_PAT once the
+      # App is confirmed working for the org.
       ADD_TO_PROJECT_PAT: ${{ secrets.ADD_TO_PROJECT_PAT }}
+      PIPELINE_BOT_PRIVATE_KEY: ${{ secrets.PIPELINE_BOT_PRIVATE_KEY }}
