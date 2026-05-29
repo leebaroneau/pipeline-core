@@ -1,5 +1,7 @@
 # Runner-pool consolidation & one-repo pipeline — design
 
+> **SUPERSEDED (2026-05-30):** The runner-pool consolidation was reverted in favour of keyless GitHub-hosted runners. Haverford runs the pipeline on GitHub-hosted at ~0 billable minutes; the GitHub App + Coolify added key-management overhead for no benefit. The deploy/pipeline-runner-pool/ artifacts were removed (restorable from PR #50). Self-host a specific heavy repo only if it threatens the Actions minute cap.
+
 - **Date:** 2026-05-29
 - **Status:** Draft for review
 - **Owner:** Lee
