@@ -63,6 +63,12 @@ reviewer_policy:
     infra: 2      # e.g. require 2 reviewers for infra-labelled PRs
     auth: 2
 
+# Org project auto-add. Optional.
+# When set, issues opened in this repo are automatically added to the org project.
+# Requires an ADD_TO_PROJECT_PAT org secret with project + repo read/write scopes.
+# org_project:
+#   url: https://github.com/orgs/my-org/projects/4
+
 # Delivery settings. Optional.
 # delivery:
 #   drift_scan_schedule: "0 8 * * 1"   # cron string (UTC); default: weekly Monday 08:00

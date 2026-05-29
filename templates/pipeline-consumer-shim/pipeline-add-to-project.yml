@@ -1,0 +1,16 @@
+# .github/workflows/pipeline-add-to-project.yml
+name: Pipeline — add-to-project
+
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  add-to-project:
+    uses: leebaroneau/pipeline-core/.github/workflows/add-to-project.yml@v1
+    permissions:
+      contents: read
+    with:
+      config-path: .github/pipeline-config.yml
+    secrets:
+      ADD_TO_PROJECT_PAT: ${{ secrets.ADD_TO_PROJECT_PAT }}

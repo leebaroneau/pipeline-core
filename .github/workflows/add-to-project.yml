@@ -1,0 +1,75 @@
+name: Pipeline — add issue to org project
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: >
+          JSON array of GitHub Actions runner labels. Defaults to the retainer's
+          self-hosted pool. Override with '["ubuntu-latest"]' to force GitHub-hosted.
+        type: string
+        required: false
+        default: '["self-hosted", "retainer"]'
+      config-path:
+        type: string
+        required: false
+        default: .github/pipeline-config.yml
+    secrets:
+      ADD_TO_PROJECT_PAT:
+        description: >
+          PAT with project + repo read/write scopes. Required for org project writes —
+          GITHUB_TOKEN cannot modify org projects. If not set, the job exits silently.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  add-to-project:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    if: ${{ github.event.issue != null }}
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v5
+
+      - name: Checkout pipeline-core
+        uses: actions/checkout@v5
+        with:
+          repository: leebaroneau/pipeline-core
+          ref: v1
+          path: .pipeline-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install pipeline deps
+        working-directory: .pipeline-core
+        run: npm ci
+
+      - name: Read org_project.url from config
+        id: project
+        uses: actions/github-script@v8
+        env:
+          NODE_PATH: ${{ github.workspace }}/.pipeline-core/node_modules
+          CONFIG_PATH: ${{ inputs.config-path }}
+        with:
+          script: |
+            const { loadConfig } = await import(`${process.env.GITHUB_WORKSPACE}/.pipeline-core/scripts/lib/config.mjs`);
+            let url = '';
+            try {
+              const config = loadConfig(process.env.CONFIG_PATH);
+              url = config?.org_project?.url ?? '';
+            } catch {
+              // Config missing or unreadable — treat as not configured
+            }
+            core.setOutput('url', url);
+            if (!url) core.info('org_project.url not configured — skipping project add');
+
+      - name: Add issue to org project
+        if: steps.project.outputs.url != ''
+        uses: actions/add-to-project@v1.3.0
+        with:
+          project-url: ${{ steps.project.outputs.url }}
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
