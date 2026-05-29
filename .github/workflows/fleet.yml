@@ -58,10 +58,27 @@ on:
         type: string
         required: false
         default: "true"
+      app-id:
+        description: >
+          GitHub App ID for the org-owned pipeline-bot. Wire to vars.PIPELINE_BOT_APP_ID
+          in the caller shim. When set (with PIPELINE_BOT_PRIVATE_KEY) the job mints a
+          short-lived, owner-scoped App installation token and uses it for all fleet git
+          and API operations instead of FLEET_PAT. Leave empty to keep using FLEET_PAT.
+        type: string
+        required: false
+        default: ""
     secrets:
       FLEET_PAT:
-        required: true
-        description: PAT with repo + read:org for the target org
+        required: false
+        description: >
+          PAT with repo + read:org for the target org. Fallback when the App is not yet
+          configured. Required until the App migration completes for this org.
+      PIPELINE_BOT_PRIVATE_KEY:
+        required: false
+        description: >
+          Private key (.pem contents) for the pipeline-bot GitHub App. Paired with
+          app-id; when present a 1-hour installation token is minted and preferred
+          over FLEET_PAT for clone / discover / refresh.
 
 permissions:
   contents: write
@@ -94,10 +111,24 @@ jobs:
         working-directory: .pipeline-core
         run: npm ci
 
+      # Mint a short-lived (1h), owner-scoped App token when the App is configured.
+      # continue-on-error is REQUIRED: a failed mint must not abort the sweep — the
+      # `|| secrets.FLEET_PAT` fallback below only fires on an empty token string, not
+      # on a failed step.
+      - name: Mint App token
+        id: app-token
+        if: ${{ inputs.app-id != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.PIPELINE_BOT_PRIVATE_KEY }}
+          owner: ${{ inputs.owner }}
+
       - name: Run fleet doctor (audit managed repos)
         if: inputs.mode == 'doctor' || inputs.mode == 'both'
         env:
-          FLEET_PAT: ${{ secrets.FLEET_PAT }}
+          FLEET_PAT: ${{ steps.app-token.outputs.token || secrets.FLEET_PAT }}
           CONFIG_PATH: ${{ inputs.config-dir }}/repos.json
           RESULTS_PATH: ${{ inputs.state-dir }}/results.json
         run: node .pipeline-core/scripts/fleet-doctor.mjs
@@ -105,7 +136,7 @@ jobs:
       - name: Run discovery (find unmanaged repos in the org)
         if: inputs.mode == 'discover' || inputs.mode == 'both'
         env:
-          FLEET_PAT: ${{ secrets.FLEET_PAT }}
+          FLEET_PAT: ${{ steps.app-token.outputs.token || secrets.FLEET_PAT }}
           OWNER: ${{ inputs.owner }}
           CONFIG_DIR: ${{ inputs.config-dir }}
           STATE_DIR: ${{ inputs.state-dir }}
@@ -114,7 +145,7 @@ jobs:
       - name: Run fleet refresh (distribute missing caller shims)
         if: inputs.mode == 'refresh'
         env:
-          FLEET_PAT: ${{ secrets.FLEET_PAT }}
+          FLEET_PAT: ${{ steps.app-token.outputs.token || secrets.FLEET_PAT }}
           CONFIG_PATH: ${{ inputs.config-dir }}/repos.json
         run: node .pipeline-core/scripts/refresh.mjs
 

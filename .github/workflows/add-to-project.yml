@@ -22,11 +22,27 @@ on:
         type: string
         required: false
         default: ""
+      app-id:
+        description: >
+          GitHub App ID for the org-owned pipeline-bot. Wire to vars.PIPELINE_BOT_APP_ID
+          in the caller shim. When set (and PIPELINE_BOT_PRIVATE_KEY is present) the job
+          mints a short-lived App installation token and uses it instead of the PAT.
+          Leave empty to keep using ADD_TO_PROJECT_PAT.
+        type: string
+        required: false
+        default: ""
     secrets:
       ADD_TO_PROJECT_PAT:
         description: >
-          PAT with project + repo read/write scopes. Required for org project writes —
-          GITHUB_TOKEN cannot modify org projects. If not set, the job exits silently.
+          PAT with project + repo read/write scopes. Fallback when the App is not yet
+          configured. GITHUB_TOKEN cannot modify org projects. If neither App nor PAT
+          is set, the add-to-project step is skipped.
+        required: false
+      PIPELINE_BOT_PRIVATE_KEY:
+        description: >
+          Private key (.pem contents) for the pipeline-bot GitHub App. Paired with
+          app-id. When present, a 1-hour installation token is minted at runtime and
+          preferred over ADD_TO_PROJECT_PAT.
         required: false
 
 permissions:
@@ -82,9 +98,26 @@ jobs:
               core.info(`Adding issue to project: ${url} (source: ${configUrl ? 'repo config' : 'org variable'})`);
             }
 
+      # Mint a short-lived (1h) org-owned App token when the App is configured.
+      # continue-on-error is REQUIRED: a failed mint (App not installed yet, missing
+      # permission, key/ID mismatch, propagation lag) otherwise aborts the job and the
+      # `|| secrets.ADD_TO_PROJECT_PAT` fallback below never evaluates (|| only falls
+      # back on an empty string, not a failed step).
+      - name: Mint App token
+        id: app-token
+        if: ${{ steps.project.outputs.url != '' && inputs.app-id != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.PIPELINE_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Add issue to org project
         if: steps.project.outputs.url != ''
         uses: actions/add-to-project@v1.3.0
         with:
           project-url: ${{ steps.project.outputs.url }}
-          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
+          # App token when minted; PAT otherwise. App token is empty (not error) when
+          # app-id is unset or the mint step failed under continue-on-error.
+          github-token: ${{ steps.app-token.outputs.token || secrets.ADD_TO_PROJECT_PAT }}

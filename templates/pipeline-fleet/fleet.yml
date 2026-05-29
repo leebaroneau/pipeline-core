@@ -11,9 +11,9 @@ on:
     inputs:
       mode:
         type: choice
-        options: [doctor, discover, both]
+        options: [doctor, discover, both, refresh]
         default: doctor
-        description: doctor=audit existing repos · discover=find new ones · both
+        description: doctor=audit · discover=find new · both · refresh=distribute missing caller shims
 
 jobs:
   fleet:
@@ -23,5 +23,12 @@ jobs:
     with:
       owner: {{OWNER}}              # The installer replaces this with the org name (e.g. Haverford-Brands)
       mode: ${{ inputs.mode || 'both' }}
+      # Org-owned GitHub App (preferred over FLEET_PAT). Set the PIPELINE_BOT_APP_ID org
+      # variable + PIPELINE_BOT_PRIVATE_KEY org secret once per org → fleet git/API ops
+      # run on a short-lived App token instead of a personal PAT.
+      app-id: ${{ vars.PIPELINE_BOT_APP_ID }}
     secrets:
+      # Fallback while the App is being rolled out. Retire FLEET_PAT once the App is
+      # confirmed working for the org's daily sweep.
       FLEET_PAT: ${{ secrets.FLEET_PAT }}
+      PIPELINE_BOT_PRIVATE_KEY: ${{ secrets.PIPELINE_BOT_PRIVATE_KEY }}
