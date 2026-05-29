@@ -10,7 +10,9 @@
 #
 # Inputs:
 #   owner              the org whose repos to audit (e.g. "Haverford-Brands")
-#   mode               "doctor" (default) | "discover" | "both"
+#   mode               "doctor" (default) | "discover" | "both" | "refresh"
+#                        refresh = WRITE mode: distribute missing caller shims to
+#                        managed repos via one PR each. Opt-in via dispatch only.
 #   config-dir         where to find repos.json + skip.json (default: "config")
 #   state-dir          where to write results + discovery state (default: "state")
 #   readme-path        which README to splice the tracker section into (default: "README.md")
@@ -108,6 +110,13 @@ jobs:
           CONFIG_DIR: ${{ inputs.config-dir }}
           STATE_DIR: ${{ inputs.state-dir }}
         run: node .pipeline-core/scripts/discover.mjs
+
+      - name: Run fleet refresh (distribute missing caller shims)
+        if: inputs.mode == 'refresh'
+        env:
+          FLEET_PAT: ${{ secrets.FLEET_PAT }}
+          CONFIG_PATH: ${{ inputs.config-dir }}/repos.json
+        run: node .pipeline-core/scripts/refresh.mjs
 
       - name: Update tracker section in README
         if: inputs.mode == 'doctor' || inputs.mode == 'both'

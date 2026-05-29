@@ -33,6 +33,7 @@ make pipeline-doctor REPO=/path/to/your/repo
 - **Self-maintenance** — workflow-lint and drift-scan keep generated artifacts in sync
 - **Install doctor** — `make pipeline-doctor` (or `node scripts/doctor.mjs --repo /path/to/consumer`) does a non-mutating setup-health check on a consumer repo: config validation, artifact drift, caller upstream/major pin, and (with `GITHUB_TOKEN`) branch-protection enforcement
 - **Fleet governance** — org fleet sweeps discover unmanaged active repos and, by default, fail after committing state when any non-archived, non-fork repo is neither managed nor explicitly skipped
+- **Fleet refresh (write-mode)** — `fleet.yml` with `mode: refresh` distributes caller shims that exist in `templates/pipeline-consumer-shim/` but are missing from a managed repo. It opens one pipeline-compliant PR per out-of-sync repo (auto-created tracking issue, `task/<#>-distribute-pipeline-shims` branch, `Fixes #<#>` body). Idempotent — repos with an open `pipeline:shim-refresh` issue are skipped, so re-runs never duplicate PRs. Opt-in via `workflow_dispatch` only; the daily cron stays read-only (`doctor`/`discover`)
 
 ## Versioning
 
