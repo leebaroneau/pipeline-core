@@ -5,11 +5,12 @@ on:
     inputs:
       runner:
         description: >
-          JSON array of GitHub Actions runner labels. Defaults to the retainer's
-          self-hosted pool. Override with '["ubuntu-latest"]' to force GitHub-hosted.
+          JSON array of GitHub Actions runner labels. Defaults to GitHub-hosted
+          (ubuntu-latest). Override with a self-hosted label array, e.g.
+          '["self-hosted","retainer"]', to use a runner pool.
         type: string
         required: false
-        default: '["self-hosted", "retainer"]'
+        default: '["ubuntu-latest"]'
       config-path:
         type: string
         required: false
