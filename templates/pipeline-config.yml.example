@@ -63,9 +63,12 @@ reviewer_policy:
     infra: 2      # e.g. require 2 reviewers for infra-labelled PRs
     auth: 2
 
-# Org project auto-add. Optional.
-# When set, issues opened in this repo are automatically added to the org project.
-# Requires an ADD_TO_PROJECT_PAT org secret with project + repo read/write scopes.
+# Org project auto-add. Optional — per-repo OVERRIDE only.
+# By default the project URL comes from the ADD_TO_PROJECT_URL org variable
+# (set once per org → all repos distribute issues to that org's roadmap).
+# Set this only to send THIS repo's issues to a different project.
+# Either way, requires an ADD_TO_PROJECT_PAT org secret (project + repo scopes,
+# all-repositories visibility, no expiry).
 # org_project:
 #   url: https://github.com/orgs/my-org/projects/4
 

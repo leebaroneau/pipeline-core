@@ -12,5 +12,9 @@ jobs:
       contents: read
     with:
       config-path: .github/pipeline-config.yml
+      # Org-wide default project. Set the ADD_TO_PROJECT_URL org variable once per
+      # org → every repo distributes its issues to that org's roadmap. A repo can
+      # override by setting org_project.url in its own pipeline-config.yml.
+      project-url-default: ${{ vars.ADD_TO_PROJECT_URL }}
     secrets:
       ADD_TO_PROJECT_PAT: ${{ secrets.ADD_TO_PROJECT_PAT }}
