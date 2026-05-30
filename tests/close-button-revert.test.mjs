@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shouldRevertClose } from "../scripts/close-button-revert.mjs";
+import { shouldRevertClose, hasMergedPrClosureEvent } from "../scripts/close-button-revert.mjs";
 
 const CLOSURE_LABELS = ["refuted", "duplicate", "wontfix", "cnr"];
 const RECENT_COMMENT = (cmd) => ({ body: cmd, createdAt: new Date(Date.now() - 30 * 1000).toISOString() });
@@ -79,4 +79,23 @@ test("does NOT revert if old command was issued (>2 min ago) — staleness check
     mergedPrLinked: false,
   });
   assert.equal(result.revert, true);
+});
+
+// Regression for the squash-merge PR-body close (e.g. template-agent #194):
+// GitHub auto-closes via "Fixes #N" in a SQUASHED PR body — the resulting `closed`
+// timeline event has commit_id:null and the only PR link is a `cross-referenced`
+// event, so the timeline heuristic alone cannot see it. The workflow resolves this
+// via GraphQL (ClosedEvent.closer) and passes mergedPrLinked, which must win.
+test("squash-merge PR-body close: timeline heuristic misses it, mergedPrLinked saves it", () => {
+  const timelineEvents = [
+    { event: "cross-referenced", commit_id: null, created_at: "2026-05-29T21:50:40Z" },
+    { event: "closed", commit_id: null, created_at: "2026-05-29T21:50:46Z" },
+  ];
+  // The timeline-only path genuinely cannot detect this close (documents the gap).
+  assert.equal(hasMergedPrClosureEvent(timelineEvents), false);
+  // With mergedPrLinked resolved true by the workflow, the closure stands.
+  assert.equal(
+    shouldRevertClose({ labels: ["type:bug"], recentComments: [], mergedPrLinked: true, timelineEvents }).revert,
+    false
+  );
 });

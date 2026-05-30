@@ -78,7 +78,37 @@ jobs:
               created_at: e.created_at,
             }));
 
-            const decision = shouldRevertClose({ labels, recentComments, timelineEvents });
+            // A close caused by a merged PR (Fixes/Closes #N) or a commit is the
+            // sanctioned path. GitHub's REST timeline does not reliably mark a
+            // squash-merge PR-body close (the closed event has commit_id:null and the
+            // PR link is a cross-reference, not a referenced commit), so resolve it
+            // directly via the latest ClosedEvent's closer.
+            let mergedPrLinked = false;
+            try {
+              const gql = await github.graphql(
+                `query($owner:String!,$repo:String!,$number:Int!){
+                   repository(owner:$owner,name:$repo){
+                     issue(number:$number){
+                       timelineItems(last:10, itemTypes:[CLOSED_EVENT]){
+                         nodes{ ... on ClosedEvent {
+                           closer { __typename ... on PullRequest { merged } ... on Commit { oid } }
+                         } }
+                       }
+                     }
+                   }
+                 }`,
+                { owner, repo, number: issue_number }
+              );
+              const nodes = gql?.repository?.issue?.timelineItems?.nodes || [];
+              const closer = nodes.length ? nodes[nodes.length - 1].closer : null;
+              mergedPrLinked =
+                closer?.__typename === 'Commit' ||
+                (closer?.__typename === 'PullRequest' && closer.merged === true);
+            } catch (e) {
+              console.log(`mergedPrLinked lookup failed (non-fatal): ${e.message}`);
+            }
+
+            const decision = shouldRevertClose({ labels, recentComments, mergedPrLinked, timelineEvents });
 
             if (!decision.revert) {
               console.log('Closure stands.');
