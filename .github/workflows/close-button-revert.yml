@@ -77,8 +77,13 @@ jobs:
               commit_id: e.commit_id,
               created_at: e.created_at,
             }));
+            const mergedPrLinked = events.some(e =>
+              e.event === 'cross-referenced' &&
+              e.source?.type === 'issue' &&
+              e.source?.issue?.pull_request?.merged_at
+            );
 
-            const decision = shouldRevertClose({ labels, recentComments, timelineEvents });
+            const decision = shouldRevertClose({ labels, recentComments, mergedPrLinked, timelineEvents });
 
             if (!decision.revert) {
               console.log('Closure stands.');

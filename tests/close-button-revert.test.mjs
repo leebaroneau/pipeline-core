@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { join } from "node:path";
 
+import { parseWorkflowFile } from "../scripts/lib/workflow-yaml.mjs";
 import { shouldRevertClose } from "../scripts/close-button-revert.mjs";
 
 const CLOSURE_LABELS = ["refuted", "duplicate", "wontfix", "cnr"];
 const RECENT_COMMENT = (cmd) => ({ body: cmd, createdAt: new Date(Date.now() - 30 * 1000).toISOString() });
 const OLD_COMMENT = (cmd) => ({ body: cmd, createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
+
+function closeButtonWorkflowScript() {
+  const workflow = parseWorkflowFile(join(import.meta.dirname, "..", ".github", "workflows", "close-button-revert.yml"));
+  const step = workflow.jobs.check.steps.find((s) => s.name === "Evaluate and revert if needed");
+  assert.ok(step, "close-button-revert workflow should have an evaluation step");
+  return step.with.script;
+}
 
 test("does NOT revert when a resolution label is present", () => {
   for (const label of CLOSURE_LABELS) {
@@ -70,6 +79,14 @@ test("DOES revert when an old referenced commit is unrelated to the close event"
     ],
   });
   assert.equal(result.revert, true);
+});
+
+test("workflow passes merged PR link evidence into the close-button guard", () => {
+  const script = closeButtonWorkflowScript();
+
+  assert.match(script, /const mergedPrLinked\s*=/);
+  assert.match(script, /source.*issue.*pull_request.*merged_at/s);
+  assert.match(script, /shouldRevertClose\(\{\s*labels,\s*recentComments,\s*mergedPrLinked,\s*timelineEvents\s*\}\)/s);
 });
 
 test("does NOT revert if old command was issued (>2 min ago) — staleness check passes; revert", () => {
